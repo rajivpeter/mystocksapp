@@ -17,6 +17,7 @@ struct PortfolioView: View {
     @State private var selectedTimeframe: HistoricalPeriod = .oneMonth
     @State private var showingAddPosition = false
     @State private var showingImport = false
+    @State private var showClearAllConfirmation = false
     @State private var selectedPosition: Position?
     @State private var selectedStockSymbol: String?
     
@@ -53,6 +54,12 @@ struct PortfolioView: View {
                         Button(action: { showingImport = true }) {
                             Label("Bulk Import", systemImage: "square.and.arrow.down")
                         }
+                        
+                        Divider()
+                        
+                        Button(role: .destructive, action: { showClearAllConfirmation = true }) {
+                            Label("Clear All Positions", systemImage: "trash")
+                        }
                     } label: {
                         Image(systemName: "plus.circle.fill")
                             .foregroundColor(.brandPrimary)
@@ -67,6 +74,18 @@ struct PortfolioView: View {
                             .foregroundColor(.brandPrimary)
                     }
                 }
+            }
+            .confirmationDialog(
+                "Clear All Positions",
+                isPresented: $showClearAllConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Clear All", role: .destructive) {
+                    clearAllPositions()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will remove all positions from your portfolio. You can re-import from CSV or screenshot after.")
             }
             .refreshable {
                 await viewModel.refreshPrices()
@@ -371,6 +390,19 @@ struct PortfolioView: View {
     private func formatPercent(_ value: Double) -> String {
         let sign = value >= 0 ? "+" : ""
         return "\(sign)\(value.formatted(.number.precision(.fractionLength(2))))%"
+    }
+    
+    private func clearAllPositions() {
+        do {
+            let positions = try modelContext.fetch(FetchDescriptor<Position>())
+            for position in positions {
+                modelContext.delete(position)
+            }
+            try modelContext.save()
+            Task { await viewModel.loadPortfolio(modelContext: modelContext) }
+        } catch {
+            print("Error clearing positions: \(error)")
+        }
     }
 }
 

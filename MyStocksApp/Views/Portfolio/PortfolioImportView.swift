@@ -15,6 +15,7 @@ struct PortfolioImportView: View {
     @Environment(\.modelContext) private var modelContext
     
     @State private var importMethod: ImportMethod = .csv
+    @State private var importMode: ImportMode = .merge
     @State private var showFilePicker = false
     @State private var showPhotoPicker = false
     @State private var selectedPhoto: PhotosPickerItem?
@@ -23,11 +24,25 @@ struct PortfolioImportView: View {
     @State private var errorMessage: String?
     @State private var showPreview = false
     @State private var csvText = ""
+    @State private var showClearConfirmation = false
+    @State private var aggregateDuplicates = true
     
     enum ImportMethod: String, CaseIterable {
         case csv = "CSV File"
         case screenshot = "Screenshot"
         case manual = "Manual Entry"
+    }
+    
+    enum ImportMode: String, CaseIterable {
+        case merge = "Merge"
+        case replace = "Replace All"
+        
+        var description: String {
+            switch self {
+            case .merge: return "Add to existing positions (duplicates will be combined)"
+            case .replace: return "Clear all existing positions first"
+            }
+        }
     }
     
     var body: some View {
@@ -45,6 +60,41 @@ struct PortfolioImportView: View {
                             }
                         }
                         .pickerStyle(.segmented)
+                    }
+                    .padding()
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(12)
+                    
+                    // Import Mode & Options
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Import Options")
+                            .font(.headline)
+                        
+                        // Merge vs Replace
+                        VStack(alignment: .leading, spacing: 8) {
+                            Picker("Mode", selection: $importMode) {
+                                ForEach(ImportMode.allCases, id: \.self) { mode in
+                                    Text(mode.rawValue).tag(mode)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            
+                            Text(importMode.description)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        // Aggregate duplicates toggle
+                        Toggle(isOn: $aggregateDuplicates) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Combine duplicate symbols")
+                                    .font(.subheadline)
+                                Text("Sum shares if same stock appears multiple times (e.g., BARC in IG + ii)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .tint(.brandPrimary)
                     }
                     .padding()
                     .background(Color.gray.opacity(0.1))
@@ -258,10 +308,20 @@ struct PortfolioImportView: View {
     
     // MARK: - Preview Section
     private var previewSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let displayPositions = aggregateDuplicates ? aggregatePositions(parsedPositions) : parsedPositions
+        let hasDuplicates = parsedPositions.count != displayPositions.count
+        
+        return VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Preview (\(parsedPositions.count) positions)")
-                    .font(.headline)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Preview (\(displayPositions.count) positions)")
+                        .font(.headline)
+                    if hasDuplicates {
+                        Text("\(parsedPositions.count - displayPositions.count) duplicates will be combined")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                }
                 Spacer()
                 Button("Clear All") {
                     parsedPositions.removeAll()
@@ -269,15 +329,44 @@ struct PortfolioImportView: View {
                 .foregroundColor(.red)
             }
             
-            ForEach(Array(parsedPositions.enumerated()), id: \.element.id) { index, position in
+            // Show aggregated or raw positions
+            ForEach(displayPositions) { position in
                 ParsedPositionRow(position: position) {
-                    parsedPositions.remove(at: index)
+                    // Remove all matching symbols from original list
+                    parsedPositions.removeAll { $0.symbol == position.symbol }
                 }
+            }
+            
+            // Summary
+            if !displayPositions.isEmpty {
+                HStack {
+                    Text("Total Value:")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("~\(formatTotalValue(displayPositions))")
+                        .font(.subheadline.bold())
+                }
+                .padding(.top, 8)
             }
         }
         .padding()
         .background(Color.gray.opacity(0.1))
         .cornerRadius(12)
+    }
+    
+    private func formatTotalValue(_ positions: [ParsedPosition]) -> String {
+        let total = positions.reduce(0) { $0 + $1.estimatedValue }
+        let hasGBP = positions.contains { $0.currency == "GBP" }
+        let hasUSD = positions.contains { $0.currency == "USD" }
+        
+        if hasGBP && hasUSD {
+            return "Mixed currencies"
+        } else if hasGBP {
+            return "£\(total.formatted(.number.precision(.fractionLength(2))))"
+        } else {
+            return "$\(total.formatted(.number.precision(.fractionLength(2))))"
+        }
     }
     
     // MARK: - File Import Handler
@@ -478,7 +567,32 @@ struct PortfolioImportView: View {
     
     // MARK: - Import Positions
     private func importPositions() {
-        for parsed in parsedPositions {
+        // Aggregate duplicates if enabled
+        var positionsToImport = parsedPositions
+        if aggregateDuplicates {
+            positionsToImport = aggregatePositions(parsedPositions)
+        }
+        
+        // Clear existing if replace mode
+        if importMode == .replace {
+            clearAllPositions()
+        }
+        
+        for parsed in positionsToImport {
+            // Check if we should merge with existing position
+            if importMode == .merge {
+                if let existingPosition = findExistingPosition(symbol: parsed.symbol) {
+                    // Calculate weighted average cost
+                    let totalShares = existingPosition.shares + parsed.shares
+                    let totalCost = (existingPosition.shares * existingPosition.averageCost) + (parsed.shares * parsed.averageCost)
+                    let newAvgCost = totalCost / totalShares
+                    
+                    existingPosition.shares = totalShares
+                    existingPosition.averageCost = newAvgCost
+                    continue
+                }
+            }
+            
             // Create Stock
             let stock = Stock(
                 symbol: parsed.symbol,
@@ -500,6 +614,49 @@ struct PortfolioImportView: View {
         
         try? modelContext.save()
         dismiss()
+    }
+    
+    // MARK: - Aggregate Positions
+    private func aggregatePositions(_ positions: [ParsedPosition]) -> [ParsedPosition] {
+        var aggregated: [String: ParsedPosition] = [:]
+        
+        for position in positions {
+            if var existing = aggregated[position.symbol] {
+                // Calculate weighted average cost
+                let totalShares = existing.shares + position.shares
+                let totalCost = (existing.shares * existing.averageCost) + (position.shares * position.averageCost)
+                let newAvgCost = totalCost / totalShares
+                
+                existing.shares = totalShares
+                existing.averageCost = newAvgCost
+                aggregated[position.symbol] = existing
+            } else {
+                aggregated[position.symbol] = position
+            }
+        }
+        
+        return Array(aggregated.values)
+    }
+    
+    // MARK: - Find Existing Position
+    private func findExistingPosition(symbol: String) -> Position? {
+        let descriptor = FetchDescriptor<Position>(
+            predicate: #Predicate { $0.symbol == symbol }
+        )
+        return try? modelContext.fetch(descriptor).first
+    }
+    
+    // MARK: - Clear All Positions
+    private func clearAllPositions() {
+        do {
+            let positions = try modelContext.fetch(FetchDescriptor<Position>())
+            for position in positions {
+                modelContext.delete(position)
+            }
+            try modelContext.save()
+        } catch {
+            print("Error clearing positions: \(error)")
+        }
     }
 }
 
