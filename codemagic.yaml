@@ -40,9 +40,20 @@ workflows:
       # Create app icon from logo
       - name: Create app icon
         script: |
-          # Install sips is already available on macOS
-          # Resize logo to 1024x1024 for app icon
-          sips -z 1024 1024 MyStocksApp/Resources/logo.png --out MyStocksApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
+          # Install ImageMagick for image processing
+          brew install imagemagick
+          
+          # Resize to 1024x1024, flatten (remove alpha), and add white background
+          # This removes transparency which Apple requires
+          magick MyStocksApp/Resources/logo.png \
+            -resize 1024x1024! \
+            -background white \
+            -flatten \
+            -alpha off \
+            MyStocksApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
+          
+          echo "Created 1024x1024 app icon without transparency"
+          
           # Update asset catalog to use the icon
           cat > MyStocksApp/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json << 'EOF'
           {
