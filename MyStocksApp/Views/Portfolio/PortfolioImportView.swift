@@ -207,7 +207,7 @@ struct PortfolioImportView: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.brandSecondary)
+                        .background(Color.brandBlue)
                         .foregroundColor(.white)
                         .cornerRadius(12)
                     }
