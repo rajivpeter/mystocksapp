@@ -657,9 +657,10 @@ struct StockDetailView: View {
             }
             
             // Prefetch other commonly used periods in background (uses cache, won't duplicate)
+            let symbolToPrefetch = symbol
             Task.detached(priority: .background) {
                 await MarketDataService.shared.prefetchHistoricalData(
-                    symbol: self.symbol,
+                    symbol: symbolToPrefetch,
                     periods: [.oneMonth, .threeMonths, .oneYear]
                 )
             }
