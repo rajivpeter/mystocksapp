@@ -16,10 +16,9 @@ struct PortfolioImportView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     
-    @State private var importMethod: ImportMethod = .csv
+    @State private var importMethod: ImportMethod = .file
     @State private var importMode: ImportMode = .merge
     @State private var showFilePicker = false
-    @State private var showPDFPicker = false
     @State private var showPhotoPicker = false
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var parsedPositions: [ParsedPosition] = []
@@ -33,10 +32,8 @@ struct PortfolioImportView: View {
     @State private var showRawText = false
     
     enum ImportMethod: String, CaseIterable {
-        case csv = "CSV"
-        case pdf = "PDF"
-        case screenshot = "Photo"
-        case manual = "Manual"
+        case file = "File Import"
+        case manual = "Manual Entry"
     }
     
     enum ImportMode: String, CaseIterable {
@@ -108,12 +105,8 @@ struct PortfolioImportView: View {
                     
                     // Content based on method
                     switch importMethod {
-                    case .csv:
-                        csvImportSection
-                    case .pdf:
-                        pdfImportSection
-                    case .screenshot:
-                        screenshotImportSection
+                    case .file:
+                        fileImportSection
                     case .manual:
                         manualEntrySection
                     }
@@ -152,17 +145,10 @@ struct PortfolioImportView: View {
             }
             .fileImporter(
                 isPresented: $showFilePicker,
-                allowedContentTypes: [.commaSeparatedText, .plainText],
+                allowedContentTypes: [.pdf, .commaSeparatedText, .plainText],
                 allowsMultipleSelection: false
             ) { result in
-                handleFileImport(result)
-            }
-            .fileImporter(
-                isPresented: $showPDFPicker,
-                allowedContentTypes: [.pdf],
-                allowsMultipleSelection: false
-            ) { result in
-                handlePDFImport(result)
+                handleUnifiedFileImport(result)
             }
             .photosPicker(
                 isPresented: $showPhotoPicker,
@@ -180,63 +166,152 @@ struct PortfolioImportView: View {
         }
     }
     
-    // MARK: - PDF Import Section
-    private var pdfImportSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("PDF Statement Import")
-                .font(.headline)
-            
-            Text("Upload a PDF statement from your broker. We'll extract your holdings from the document.")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            
-            // Supported Formats
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Supported statement formats:")
-                    .font(.caption.bold())
+    // MARK: - Unified File Import Section
+    private var fileImportSection: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            // Main Import Button
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Import from File or Photo")
+                    .font(.headline)
+                
+                Text("Upload a PDF statement, CSV file, or screenshot from your broker app.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                
+                // Two main buttons
                 HStack(spacing: 12) {
-                    ForEach(["IG", "ii", "HL", "Freetrade", "Trading 212"], id: \.self) { broker in
-                        Text(broker)
-                            .font(.caption)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.brandPrimary.opacity(0.2))
-                            .cornerRadius(6)
+                    Button {
+                        showFilePicker = true
+                    } label: {
+                        VStack(spacing: 8) {
+                            Image(systemName: "doc.fill")
+                                .font(.title2)
+                            Text("PDF / CSV")
+                                .font(.subheadline.bold())
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.brandPrimary)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                    }
+                    
+                    Button {
+                        showPhotoPicker = true
+                    } label: {
+                        VStack(spacing: 8) {
+                            Image(systemName: "photo.fill")
+                                .font(.title2)
+                            Text("Screenshot")
+                                .font(.subheadline.bold())
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.brandSecondary)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                    }
+                }
+            }
+            
+            // Supported platforms
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Works with:")
+                    .font(.caption.bold())
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(["IG", "Interactive Investor", "Hargreaves Lansdown", "Freetrade", "Trading 212"], id: \.self) { broker in
+                            Text(broker)
+                                .font(.caption)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.brandPrimary.opacity(0.15))
+                                .cornerRadius(8)
+                        }
                     }
                 }
             }
             
             // Tips
-            VStack(alignment: .leading, spacing: 4) {
-                Label("Works best with monthly/quarterly statements", systemImage: "checkmark.circle")
-                Label("Holdings/portfolio summary pages are ideal", systemImage: "checkmark.circle")
-                Label("Text-based PDFs work better than scanned images", systemImage: "info.circle")
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Tips for best results:")
+                    .font(.caption.bold())
+                Label("PDF statements work best (portfolio/holdings page)", systemImage: "checkmark.circle.fill")
+                Label("For screenshots, crop to just the positions table", systemImage: "checkmark.circle.fill")
+                Label("Ensure stock symbols and quantities are visible", systemImage: "checkmark.circle.fill")
             }
             .font(.caption)
             .foregroundColor(.secondary)
             
-            // Upload Button
-            Button {
-                showPDFPicker = true
-            } label: {
-                HStack {
-                    Image(systemName: "doc.text.fill")
-                    Text("Select PDF Statement")
+            // CSV Format Help
+            DisclosureGroup("CSV Format") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("symbol,shares,average_cost,currency")
+                        .font(.system(.caption, design: .monospaced))
+                    Text("AAPL,100,150.50,USD")
+                        .font(.system(.caption, design: .monospaced))
+                    Text("BARC.L,500,1.50,GBP")
+                        .font(.system(.caption, design: .monospaced))
                 }
-                .frame(maxWidth: .infinity)
                 .padding()
-                .background(Color.brandPrimary)
-                .foregroundColor(.white)
-                .cornerRadius(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.black.opacity(0.2))
+                .cornerRadius(8)
             }
+            .font(.caption)
             
+            // Or paste CSV
+            DisclosureGroup("Paste CSV Data") {
+                VStack(spacing: 12) {
+                    TextEditor(text: $csvText)
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(height: 120)
+                        .padding(8)
+                        .background(Color.gray.opacity(0.15))
+                        .cornerRadius(8)
+                    
+                    if !csvText.isEmpty {
+                        Button {
+                            parseCSVText(csvText)
+                        } label: {
+                            HStack {
+                                Image(systemName: "doc.text.magnifyingglass")
+                                Text("Parse CSV")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                        }
+                    }
+                }
+            }
+            .font(.caption)
+            
+            // Processing indicator
             if isProcessing {
                 HStack {
                     ProgressView()
-                    Text("Extracting positions from PDF...")
+                    Text("Processing...")
                         .foregroundColor(.secondary)
                 }
+                .frame(maxWidth: .infinity)
                 .padding()
+            }
+            
+            // Debug option
+            if !rawOCRText.isEmpty {
+                Button {
+                    showRawText = true
+                } label: {
+                    HStack {
+                        Image(systemName: "doc.text.magnifyingglass")
+                        Text("View Extracted Text (Debug)")
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
             }
         }
         .padding()
@@ -274,155 +349,6 @@ struct PortfolioImportView: View {
                 }
             }
         }
-    }
-    
-    // MARK: - CSV Import Section
-    private var csvImportSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("CSV Import")
-                .font(.headline)
-            
-            Text("Upload a CSV file with your portfolio positions. Expected format:")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            
-            // Format Example
-            VStack(alignment: .leading, spacing: 4) {
-                Text("symbol,shares,average_cost,currency")
-                    .font(.system(.caption, design: .monospaced))
-                Text("AAPL,100,150.50,USD")
-                    .font(.system(.caption, design: .monospaced))
-                Text("TSLA,50,200.00,USD")
-                    .font(.system(.caption, design: .monospaced))
-                Text("VOD.L,1000,0.85,GBP")
-                    .font(.system(.caption, design: .monospaced))
-            }
-            .padding()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.black.opacity(0.3))
-            .cornerRadius(8)
-            
-            // Upload Button
-            Button {
-                showFilePicker = true
-            } label: {
-                HStack {
-                    Image(systemName: "doc.badge.plus")
-                    Text("Select CSV File")
-                }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(Color.accentColor)
-                .foregroundColor(.white)
-                .cornerRadius(12)
-            }
-            
-            // Or paste CSV
-            Text("Or paste CSV content:")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            
-            TextEditor(text: $csvText)
-                .font(.system(.caption, design: .monospaced))
-                .frame(height: 150)
-                .padding(8)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(8)
-            
-            if !csvText.isEmpty {
-                Button {
-                    parseCSVText(csvText)
-                } label: {
-                    HStack {
-                        Image(systemName: "doc.text.magnifyingglass")
-                        Text("Parse CSV")
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
-                }
-            }
-        }
-        .padding()
-        .background(Color.gray.opacity(0.1))
-        .cornerRadius(12)
-    }
-    
-    // MARK: - Screenshot Import Section
-    private var screenshotImportSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Screenshot Import")
-                .font(.headline)
-            
-            Text("Take a screenshot of your portfolio from your broker app. For best results:")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            
-            // Tips for better OCR
-            VStack(alignment: .leading, spacing: 6) {
-                Label("Ensure stock symbols are clearly visible", systemImage: "textformat")
-                Label("Include the holdings/positions table", systemImage: "tablecells")
-                Label("Crop to just the portfolio section", systemImage: "crop")
-                Label("Use landscape mode for wide tables", systemImage: "rectangle.landscape.rotate")
-            }
-            .font(.caption)
-            .foregroundColor(.secondary)
-            
-            // Supported Platforms
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Tested with:")
-                    .font(.caption.bold())
-                HStack(spacing: 12) {
-                    PlatformBadge(name: "IG", icon: "chart.line.uptrend.xyaxis")
-                    PlatformBadge(name: "HL", icon: "building.columns.fill")
-                    PlatformBadge(name: "ii", icon: "chart.bar.fill")
-                    PlatformBadge(name: "Freetrade", icon: "sparkles")
-                }
-            }
-            
-            // Upload Button
-            Button {
-                showPhotoPicker = true
-            } label: {
-                HStack {
-                    Image(systemName: "photo.badge.plus")
-                    Text("Select Screenshot")
-                }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(Color.accentColor)
-                .foregroundColor(.white)
-                .cornerRadius(12)
-            }
-            
-            if isProcessing {
-                HStack {
-                    ProgressView()
-                    Text("Processing screenshot...")
-                        .foregroundColor(.secondary)
-                }
-                .padding()
-            }
-            
-            // Debug option
-            if !rawOCRText.isEmpty {
-                Button {
-                    showRawText = true
-                } label: {
-                    HStack {
-                        Image(systemName: "doc.text.magnifyingglass")
-                        Text("View Extracted Text")
-                    }
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                }
-            }
-        }
-        .padding()
-        .background(Color.gray.opacity(0.1))
-        .cornerRadius(12)
     }
     
     // MARK: - Manual Entry Section
@@ -507,25 +433,48 @@ struct PortfolioImportView: View {
         }
     }
     
-    // MARK: - File Import Handler
-    private func handleFileImport(_ result: Result<[URL], Error>) {
+    // MARK: - Unified File Import Handler (PDF + CSV)
+    private func handleUnifiedFileImport(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
             
             // Start accessing security-scoped resource
-            guard url.startAccessingSecurityScopedResource() else {
-                errorMessage = "Permission denied to access file"
-                return
+            let hasAccess = url.startAccessingSecurityScopedResource()
+            defer { 
+                if hasAccess { url.stopAccessingSecurityScopedResource() }
             }
             
-            defer { url.stopAccessingSecurityScopedResource() }
+            let fileExtension = url.pathExtension.lowercased()
             
-            do {
-                let contents = try String(contentsOf: url, encoding: .utf8)
-                parseCSVText(contents)
-            } catch {
-                errorMessage = "Failed to read file: \(error.localizedDescription)"
+            if fileExtension == "pdf" {
+                // Handle PDF
+                isProcessing = true
+                errorMessage = nil
+                
+                // Copy PDF data to temp location (fixes security-scoped resource issues)
+                do {
+                    let fileData = try Data(contentsOf: url)
+                    let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("import_\(UUID().uuidString).pdf")
+                    try fileData.write(to: tempURL)
+                    
+                    Task {
+                        await extractTextFromPDF(url: tempURL)
+                        // Clean up temp file
+                        try? FileManager.default.removeItem(at: tempURL)
+                    }
+                } catch {
+                    errorMessage = "Failed to read PDF: \(error.localizedDescription)"
+                    isProcessing = false
+                }
+            } else {
+                // Handle CSV/Text
+                do {
+                    let contents = try String(contentsOf: url, encoding: .utf8)
+                    parseCSVText(contents)
+                } catch {
+                    errorMessage = "Failed to read file: \(error.localizedDescription)"
+                }
             }
             
         case .failure(let error):
@@ -637,31 +586,6 @@ struct PortfolioImportView: View {
                     isProcessing = false
                 }
             }
-        }
-    }
-    
-    // MARK: - PDF Import Handler
-    private func handlePDFImport(_ result: Result<[URL], Error>) {
-        switch result {
-        case .success(let urls):
-            guard let url = urls.first else { return }
-            
-            guard url.startAccessingSecurityScopedResource() else {
-                errorMessage = "Permission denied to access PDF"
-                return
-            }
-            
-            defer { url.stopAccessingSecurityScopedResource() }
-            
-            isProcessing = true
-            errorMessage = nil
-            
-            Task {
-                await extractTextFromPDF(url: url)
-            }
-            
-        case .failure(let error):
-            errorMessage = "PDF import failed: \(error.localizedDescription)"
         }
     }
     
