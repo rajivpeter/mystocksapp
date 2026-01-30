@@ -7,13 +7,15 @@ workflows:
     max_build_duration: 60
     instance_type: mac_mini_m2
     
+    integrations:
+      app_store_connect: Codemagic Build Key
+    
     environment:
-      groups:
-        - app_store_credentials
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.yantraworks.mystocksapp
       vars:
         BUNDLE_ID: "com.yantraworks.mystocksapp"
-        XCODE_PROJECT: "MyStocksApp.xcodeproj"
-        XCODE_SCHEME: "MyStocksApp"
       xcode: latest
     
     triggering:
@@ -43,45 +45,17 @@ workflows:
         script: |
           xcodegen generate
       
-      # Set up keychain for code signing
+      # Set up keychain
       - name: Set up keychain
         script: |
           keychain initialize
       
-      # Save private key to file
-      - name: Save API key
-        script: |
-          echo "$APP_STORE_CONNECT_PRIVATE_KEY" > /tmp/AuthKey.p8
-          echo "=== API Key file created ==="
-      
-      # Create a new certificate with private key
-      - name: Create certificate
-        script: |
-          echo "=== Creating iOS Distribution certificate ==="
-          app-store-connect certificates create \
-            --type IOS_DISTRIBUTION \
-            --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
-            --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
-            --private-key @file:/tmp/AuthKey.p8 \
-            --save
-      
-      # Fetch signing files
-      - name: Fetch signing files
-        script: |
-          echo "=== Fetching signing files for $BUNDLE_ID ==="
-          app-store-connect fetch-signing-files "$BUNDLE_ID" \
-            --type IOS_APP_STORE \
-            --create \
-            --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
-            --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
-            --private-key @file:/tmp/AuthKey.p8
-      
-      # Add certificates to keychain
+      # Add certificates to keychain (automatic from ios_signing)
       - name: Add certificates to keychain
         script: |
           keychain add-certificates
       
-      # Set up code signing settings
+      # Set up code signing
       - name: Set up code signing
         script: |
           xcode-project use-profiles --project "MyStocksApp.xcodeproj"
