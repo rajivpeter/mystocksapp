@@ -48,6 +48,17 @@ workflows:
         script: |
           keychain initialize
       
+      # Create a new certificate with private key
+      - name: Create certificate
+        script: |
+          echo "=== Creating iOS Distribution certificate ==="
+          app-store-connect certificates create \
+            --type IOS_DISTRIBUTION \
+            --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
+            --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
+            --private-key "$APP_STORE_CONNECT_PRIVATE_KEY" \
+            --save || echo "Certificate may already exist"
+      
       # Fetch signing files using environment variables
       - name: Fetch signing files
         script: |
