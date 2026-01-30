@@ -37,6 +37,30 @@ workflows:
         script: |
           brew install xcodegen
       
+      # Create app icon from logo
+      - name: Create app icon
+        script: |
+          # Install sips is already available on macOS
+          # Resize logo to 1024x1024 for app icon
+          sips -z 1024 1024 MyStocksApp/Resources/logo.png --out MyStocksApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
+          # Update asset catalog to use the icon
+          cat > MyStocksApp/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json << 'EOF'
+          {
+            "images" : [
+              {
+                "filename" : "AppIcon-1024.png",
+                "idiom" : "universal",
+                "platform" : "ios",
+                "size" : "1024x1024"
+              }
+            ],
+            "info" : {
+              "author" : "xcode",
+              "version" : 1
+            }
+          }
+          EOF
+      
       # Generate Xcode project
       - name: Generate Xcode project
         script: |
