@@ -95,71 +95,45 @@ workflows:
         script: |
           keychain initialize
       
-      # Manage certificates (check existing or create new)
-      - name: Manage certificates
+      # Fetch signing files with automatic certificate management
+      - name: Fetch signing files
         script: |
-          # Generate RSA 2048-bit private key (Apple's required format)
+          # Generate RSA 2048-bit private key for certificate creation if needed
           openssl genrsa -out /tmp/cert_key.pem 2048
           chmod 600 /tmp/cert_key.pem
           echo "=== RSA 2048 Key generated ==="
           
-          echo "=== Checking for existing iOS Distribution certificates ==="
+          echo "=== Fetching signing files (certificates + profiles) ==="
           
-          # List existing certificates
-          EXISTING_CERTS=$(app-store-connect certificates list --type IOS_DISTRIBUTION --state ISSUED 2>/dev/null || true)
-          echo "$EXISTING_CERTS"
+          # First, list current certificates
+          echo "Current iOS Distribution certificates:"
+          app-store-connect certificates list --type IOS_DISTRIBUTION || true
           
-          # Count active certificates
-          CERT_COUNT=$(echo "$EXISTING_CERTS" | grep -c "IOS_DISTRIBUTION" || echo "0")
-          echo "Found $CERT_COUNT active iOS Distribution certificate(s)"
-          
-          if [ "$CERT_COUNT" -gt "0" ]; then
-            echo "=== Using existing certificate ==="
-            # Get the first certificate ID
-            CERT_ID=$(echo "$EXISTING_CERTS" | grep "IOS_DISTRIBUTION" | head -1 | awk '{print $1}')
-            echo "Using certificate ID: $CERT_ID"
-          else
-            echo "=== No existing certificate found, creating new one ==="
-            
-            # Try to create certificate
-            if app-store-connect certificates create \
-              --type IOS_DISTRIBUTION \
-              --certificate-key @file:/tmp/cert_key.pem \
-              --save 2>&1; then
-              echo "=== Certificate created successfully ==="
-            else
-              echo "=== Certificate creation failed (may already exist at limit) ==="
-              echo "=== Attempting to revoke old certificates and retry ==="
-              
-              # List all certificates including expired/revoked
-              ALL_CERTS=$(app-store-connect certificates list --type IOS_DISTRIBUTION 2>/dev/null || true)
-              echo "$ALL_CERTS"
-              
-              # Try to revoke old certificates if at limit
-              OLD_CERT_ID=$(echo "$ALL_CERTS" | grep "IOS_DISTRIBUTION" | head -1 | awk '{print $1}')
-              if [ -n "$OLD_CERT_ID" ]; then
-                echo "Attempting to revoke certificate: $OLD_CERT_ID"
-                app-store-connect certificates revoke "$OLD_CERT_ID" 2>/dev/null || true
-                
-                # Wait a moment for revocation to process
-                sleep 2
-                
-                # Retry certificate creation
-                app-store-connect certificates create \
-                  --type IOS_DISTRIBUTION \
-                  --certificate-key @file:/tmp/cert_key.pem \
-                  --save
-              fi
-            fi
-          fi
-      
-      # Fetch signing files (profile)
-      - name: Fetch signing files
-        script: |
-          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+          # Try to fetch signing files - this will fail if no valid cert/key combo exists
+          # So we'll handle that case
+          if app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
             --create \
-            --certificate-key @file:/tmp/cert_key.pem
+            --certificate-key @file:/tmp/cert_key.pem 2>&1; then
+            echo "=== Signing files fetched successfully ==="
+          else
+            echo "=== Need to create new certificate (revoking oldest first) ==="
+            
+            # Get the oldest certificate ID (first one listed)
+            CERT_TO_REVOKE=$(app-store-connect certificates list --type IOS_DISTRIBUTION 2>/dev/null | grep "^Id:" | head -1 | awk '{print $2}')
+            
+            if [ -n "$CERT_TO_REVOKE" ]; then
+              echo "Revoking certificate: $CERT_TO_REVOKE"
+              app-store-connect certificates revoke "$CERT_TO_REVOKE" || true
+              sleep 3
+            fi
+            
+            # Now fetch-signing-files should work with --create
+            app-store-connect fetch-signing-files "$BUNDLE_ID" \
+              --type IOS_APP_STORE \
+              --create \
+              --certificate-key @file:/tmp/cert_key.pem
+          fi
       
       # Add certificates to keychain
       - name: Add certificates to keychain
