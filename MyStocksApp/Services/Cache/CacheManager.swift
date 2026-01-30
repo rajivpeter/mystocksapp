@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import SwiftData
 
 /// Centralized cache manager for all market data
 @Observable

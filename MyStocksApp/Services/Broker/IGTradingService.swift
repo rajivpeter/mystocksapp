@@ -400,7 +400,7 @@ extension IGWatchlist: Decodable {
     }
 }
 
-struct IGWatchlistsResponse: Codable {
+struct IGWatchlistsResponse: Decodable {
     let watchlists: [IGWatchlist]
 }
 

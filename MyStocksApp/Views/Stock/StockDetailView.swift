@@ -27,6 +27,7 @@ struct StockDetailView: View {
     @State private var showAddToWatchlist = false
     @State private var alertMessage: String?
     @State private var showAlertToast = false
+    @State private var cachedFiveYearData: [OHLCV] = []
     
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -621,9 +622,6 @@ struct StockDetailView: View {
     }
     
     // MARK: - Data Loading
-    
-    /// Cached 5-year data for technical calculations and performance - avoids redundant API calls
-    @State private var cachedFiveYearData: [OHLCV] = []
     
     private func loadStockData() async {
         isLoading = true

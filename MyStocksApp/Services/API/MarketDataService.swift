@@ -442,17 +442,6 @@ enum HistoricalPeriod: String, CaseIterable {
     }
 }
 
-// MARK: - Cache
-
-struct CachedQuote {
-    let quote: StockQuote
-    let fetchedAt: Date
-    
-    var isValid: Bool {
-        Date().timeIntervalSince(fetchedAt) < 60 // 1 minute cache
-    }
-}
-
 // MARK: - Errors
 
 enum MarketDataError: Error, LocalizedError {
