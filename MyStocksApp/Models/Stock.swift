@@ -236,7 +236,6 @@ enum TechnicalSignal: String, Codable {
 // MARK: - Stock Extensions for Morningstar Links
 extension Stock {
     var morningstarURL: URL? {
-        let baseURL: String
         switch currency {
         case .gbp:
             return URL(string: "https://www.morningstar.co.uk/uk/stocks/\(symbol)")

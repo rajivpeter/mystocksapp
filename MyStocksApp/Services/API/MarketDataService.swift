@@ -139,6 +139,26 @@ class MarketDataService {
     func clearCache() {
         cache.removeAll()
     }
+    
+    /// Fetch stock (converts quote to Stock model)
+    func fetchStock(symbol: String) async throws -> Stock {
+        let quote = try await fetchQuote(symbol: symbol)
+        return Stock(
+            symbol: quote.symbol,
+            name: quote.name,
+            exchange: quote.exchange,
+            currency: Currency(rawValue: quote.currency) ?? .usd,
+            currentPrice: quote.currentPrice,
+            previousClose: quote.previousClose,
+            open: quote.open,
+            high: quote.high,
+            low: quote.low,
+            volume: quote.volume,
+            averageVolume: quote.volume,
+            high52Week: quote.high52Week,
+            low52Week: quote.low52Week
+        )
+    }
 }
 
 // MARK: - Data Types
