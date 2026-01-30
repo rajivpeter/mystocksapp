@@ -436,7 +436,7 @@ struct AboutView: View {
                 VStack(spacing: 16) {
                     Image(systemName: "chart.line.uptrend.xyaxis.circle.fill")
                         .font(.system(size: 64))
-                        .foregroundColor(.green)
+                        .foregroundColor(.brandPrimary)
                     
                     Text("MyStocksApp")
                         .font(.title.weight(.bold))

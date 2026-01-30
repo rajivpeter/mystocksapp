@@ -54,14 +54,14 @@ struct EducationView: View {
                     .foregroundColor(.gray)
             }
             
-            // Progress Bar
+                    // Progress Bar
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     Rectangle()
                         .fill(Color.gray.opacity(0.3))
                     
                     Rectangle()
-                        .fill(Color.green)
+                        .fill(Color.brandPrimary)
                         .frame(width: geometry.size.width * 0.25) // 5/20 = 25%
                 }
                 .cornerRadius(4)
@@ -174,7 +174,7 @@ struct CategoryPill: View {
             .foregroundColor(isSelected ? .black : .white)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(isSelected ? Color.green : Color.gray.opacity(0.3))
+            .background(isSelected ? Color.brandPrimary : Color.gray.opacity(0.3))
             .cornerRadius(20)
         }
     }
@@ -235,7 +235,7 @@ struct PatternDetailSheet: View {
                         // Pattern Visual
                         Image(systemName: "chart.bar.doc.horizontal")
                             .font(.system(size: 64))
-                            .foregroundColor(.green)
+                            .foregroundColor(.brandPrimary)
                         
                         Text(pattern.name)
                             .font(.title.weight(.bold))
@@ -301,7 +301,7 @@ struct PatternDetailSheet: View {
                         .foregroundColor(.black)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.green)
+                        .background(Color.brandPrimary)
                         .cornerRadius(12)
                     }
                 }
@@ -394,7 +394,7 @@ struct PatternQuizView: View {
             VStack(spacing: 24) {
                 // Progress
                 ProgressView(value: Double(currentQuestion + 1), total: 3)
-                    .tint(.green)
+                    .tint(.brandPrimary)
                 
                 Text("Question \(currentQuestion + 1) of 3")
                     .font(.caption)
@@ -441,7 +441,7 @@ struct PatternQuizView: View {
                         .foregroundColor(.black)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(selectedAnswer != nil ? Color.green : Color.gray)
+                        .background(selectedAnswer != nil ? Color.brandPrimary : Color.gray)
                         .cornerRadius(12)
                 }
                 .disabled(selectedAnswer == nil)
@@ -489,15 +489,15 @@ struct AnswerButton: View {
                 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
+                        .foregroundColor(.brandPrimary)
                 }
             }
             .padding()
-            .background(isSelected ? Color.green.opacity(0.3) : Color.gray.opacity(0.2))
+            .background(isSelected ? Color.brandPrimary.opacity(0.3) : Color.gray.opacity(0.2))
             .cornerRadius(12)
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(isSelected ? Color.green : Color.clear, lineWidth: 2)
+                    .stroke(isSelected ? Color.brandPrimary : Color.clear, lineWidth: 2)
             )
         }
     }

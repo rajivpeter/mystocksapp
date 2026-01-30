@@ -49,7 +49,7 @@ struct ContentView: View {
                 }
                 .tag(AppTab.settings)
         }
-        .tint(.green)
+        .tint(.brandPrimary)
         .preferredColorScheme(.dark)
         .onReceive(NotificationCenter.default.publisher(for: .navigateToStock)) { notification in
             if let symbol = notification.userInfo?["symbol"] as? String {

@@ -212,7 +212,7 @@ struct FilterPill: View {
             .foregroundColor(isSelected ? .black : .white)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(isSelected ? Color.green : Color.gray.opacity(0.3))
+            .background(isSelected ? Color.brandPrimary : Color.gray.opacity(0.3))
             .cornerRadius(20)
         }
     }
@@ -322,13 +322,13 @@ struct AlertCard: View {
     private var borderColor: Color {
         switch alert.alertType {
         case .noBrainerBuy:
-            return .green
+            return .brandPrimary
         case .strongBuy, .buy:
-            return .green.opacity(0.5)
+            return .brandPrimary.opacity(0.5)
         case .sell, .reduce:
-            return .red.opacity(0.5)
+            return .loss.opacity(0.5)
         case .stopLossTriggered:
-            return .red
+            return .loss
         default:
             return .clear
         }
@@ -337,27 +337,27 @@ struct AlertCard: View {
     private func colorForAlertType(_ type: AlertType) -> Color {
         switch type {
         case .noBrainerBuy:
-            return .green
+            return .brandPrimary
         case .strongBuy:
-            return .green.opacity(0.8)
+            return .brandPrimary.opacity(0.8)
         case .buy:
-            return .green.opacity(0.6)
+            return .brandBlue
         case .hold:
-            return .gray
+            return .brandSoft
         case .reduce:
-            return .orange
+            return .warning
         case .sell:
-            return .red
+            return .loss
         case .stopLossTriggered:
-            return .red
+            return .loss
         case .targetReached:
-            return .blue
+            return .brandBlue
         case .patternDetected:
             return .purple
         case .earningsAlert:
-            return .yellow
+            return .warning
         case .newsAlert:
-            return .cyan
+            return .brandBlue
         }
     }
 }
@@ -383,7 +383,7 @@ struct AlertDetailSheet: View {
                         
                         Text(alert.symbol)
                             .font(.title.weight(.bold))
-                            .foregroundColor(.green)
+                            .foregroundColor(.brandPrimary)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical)
@@ -440,7 +440,7 @@ struct AlertDetailSheet: View {
                                 .foregroundColor(.black)
                                 .frame(maxWidth: .infinity)
                                 .padding()
-                                .background(Color.green)
+                                .background(Color.brandPrimary)
                                 .cornerRadius(12)
                         }
                         

@@ -1,0 +1,209 @@
+# codemagic.yaml - Codemagic CI/CD Configuration
+# Build iOS app without Mac using Codemagic cloud
+
+workflows:
+  ios-app:
+    name: MyStocksApp iOS Build
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.rajivpeter.mystocksapp
+      vars:
+        XCODE_WORKSPACE: "MyStocksApp.xcworkspace"
+        XCODE_SCHEME: "MyStocksApp"
+        APP_STORE_CONNECT_KEY_IDENTIFIER: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        APP_STORE_CONNECT_ISSUER_ID: $APP_STORE_CONNECT_ISSUER_ID
+        APP_STORE_CONNECT_PRIVATE_KEY: $APP_STORE_CONNECT_PRIVATE_KEY
+        CERTIFICATE_PRIVATE_KEY: $CERTIFICATE_PRIVATE_KEY
+      xcode: 15.2
+      cocoapods: default
+    
+    triggering:
+      events:
+        - push
+        - pull_request
+      branch_patterns:
+        - pattern: 'main'
+          include: true
+          source: true
+        - pattern: 'develop'
+          include: true
+          source: true
+        - pattern: 'release/*'
+          include: true
+          source: true
+      cancel_previous_builds: true
+    
+    scripts:
+      # Generate Xcode project if using Swift Package Manager
+      - name: Generate Xcode project
+        script: |
+          if [ -f "Package.swift" ]; then
+            swift package generate-xcodeproj
+          fi
+      
+      # Install CocoaPods dependencies if Podfile exists
+      - name: Install CocoaPods dependencies
+        script: |
+          if [ -f "Podfile" ]; then
+            pod install
+          fi
+      
+      # Set up keychain for code signing
+      - name: Set up keychain
+        script: |
+          keychain initialize
+      
+      # Fetch signing files from App Store Connect
+      - name: Fetch signing files
+        script: |
+          app-store-connect fetch-signing-files $(xcode-project detect-bundle-id) \
+            --type IOS_APP_STORE \
+            --create
+      
+      # Add certificates to keychain
+      - name: Add certificates to keychain
+        script: |
+          keychain add-certificates
+      
+      # Set up code signing settings
+      - name: Set up code signing settings
+        script: |
+          xcode-project use-profiles
+      
+      # Increment build number
+      - name: Increment build number
+        script: |
+          cd $CM_BUILD_DIR
+          LATEST_BUILD_NUMBER=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_CONNECT_ISSUER_ID" || echo "0")
+          agvtool new-version -all $((LATEST_BUILD_NUMBER + 1))
+      
+      # Build the app
+      - name: Build iOS app
+        script: |
+          xcode-project build-ipa \
+            --workspace "$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME" \
+            --config Release \
+            --archive-flags="-destination 'generic/platform=iOS'"
+    
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    
+    publishing:
+      email:
+        recipients:
+          - rajiv@example.com
+        notify:
+          success: true
+          failure: true
+      
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        submit_to_app_store: false
+        beta_groups:
+          - Internal Testers
+  
+  # Development build workflow
+  ios-dev:
+    name: MyStocksApp Dev Build
+    max_build_duration: 30
+    instance_type: mac_mini_m2
+    
+    environment:
+      ios_signing:
+        distribution_type: development
+        bundle_identifier: com.rajivpeter.mystocksapp
+      xcode: 15.2
+    
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: 'feature/*'
+          include: true
+          source: true
+        - pattern: 'develop'
+          include: true
+          source: true
+    
+    scripts:
+      - name: Set up keychain
+        script: keychain initialize
+      
+      - name: Fetch signing files
+        script: |
+          app-store-connect fetch-signing-files $(xcode-project detect-bundle-id) \
+            --type IOS_APP_DEVELOPMENT \
+            --create
+      
+      - name: Add certificates
+        script: keychain add-certificates
+      
+      - name: Use profiles
+        script: xcode-project use-profiles
+      
+      - name: Build
+        script: |
+          xcode-project build-ipa \
+            --workspace "$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME" \
+            --config Debug
+    
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    
+    publishing:
+      email:
+        recipients:
+          - rajiv@example.com
+        notify:
+          success: false
+          failure: true
+
+  # Simulator build for testing
+  ios-simulator:
+    name: Simulator Build
+    max_build_duration: 20
+    instance_type: mac_mini_m2
+    
+    environment:
+      xcode: 15.2
+    
+    triggering:
+      events:
+        - pull_request
+    
+    scripts:
+      - name: Build for Simulator
+        script: |
+          xcodebuild \
+            -scheme "MyStocksApp" \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPhone 15 Pro' \
+            -configuration Debug \
+            build
+      
+      - name: Run Tests
+        script: |
+          xcodebuild \
+            -scheme "MyStocksApp" \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPhone 15 Pro' \
+            -configuration Debug \
+            test
+    
+    publishing:
+      email:
+        recipients:
+          - rajiv@example.com
+        notify:
+          success: false
+          failure: true

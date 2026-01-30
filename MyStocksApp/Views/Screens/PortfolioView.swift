@@ -46,7 +46,7 @@ struct PortfolioView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: { showingAddPosition = true }) {
                         Image(systemName: "plus.circle.fill")
-                            .foregroundColor(.green)
+                            .foregroundColor(.brandPrimary)
                     }
                 }
                 
@@ -55,7 +55,7 @@ struct PortfolioView: View {
                         Task { await viewModel.refreshPrices() }
                     }) {
                         Image(systemName: "arrow.clockwise")
-                            .foregroundColor(.green)
+                            .foregroundColor(.brandPrimary)
                     }
                 }
             }
@@ -93,7 +93,7 @@ struct PortfolioView: View {
                 Text("(\(formatPercent(viewModel.totalPnLPercent)))")
             }
             .font(.subheadline.weight(.medium))
-            .foregroundColor(viewModel.totalPnL >= 0 ? .green : .red)
+            .foregroundColor(viewModel.totalPnL >= 0 ? .brandPrimary : .loss)
             
             // Last Updated
             if let lastUpdated = viewModel.lastUpdated {
@@ -144,15 +144,15 @@ struct PortfolioView: View {
             GeometryReader { geometry in
                 HStack(spacing: 2) {
                     Rectangle()
-                        .fill(Color.blue)
+                        .fill(Color.brandBlue)
                         .frame(width: geometry.size.width * CGFloat(viewModel.ukAllocation / 100))
                     
                     Rectangle()
-                        .fill(Color.red)
+                        .fill(Color.brandPrimary)
                         .frame(width: geometry.size.width * CGFloat(viewModel.usAllocation / 100))
                     
                     Rectangle()
-                        .fill(Color.green)
+                        .fill(Color.brandSoft)
                         .frame(width: geometry.size.width * CGFloat(viewModel.cashAllocation / 100))
                 }
                 .clipShape(Capsule())
@@ -311,7 +311,7 @@ struct PortfolioView: View {
                     .font(.headline)
                     .foregroundColor(.black)
                     .padding()
-                    .background(Color.green)
+                    .background(Color.brandPrimary)
                     .cornerRadius(12)
             }
         }
@@ -443,7 +443,7 @@ struct PositionCard: View {
                     Text("(\(position.formattedPnLPercent))")
                 }
                 .font(.caption)
-                .foregroundColor(position.isProfit ? .green : .red)
+                .foregroundColor(position.isProfit ? .brandPrimary : .loss)
             }
             
             // Arrow

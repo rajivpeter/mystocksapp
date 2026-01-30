@@ -317,7 +317,7 @@ struct MoverCategoryButton: View {
         .foregroundColor(isSelected ? .black : .white)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(isSelected ? Color.green : Color.gray.opacity(0.3))
+        .background(isSelected ? Color.brandPrimary : Color.gray.opacity(0.3))
         .cornerRadius(20)
     }
 }
@@ -350,7 +350,7 @@ struct MoverRow: View {
                 
                 Text(change)
                     .font(.caption.weight(.bold))
-                    .foregroundColor(.green)
+                    .foregroundColor(.brandPrimary)
             }
             
             Text(volume)
