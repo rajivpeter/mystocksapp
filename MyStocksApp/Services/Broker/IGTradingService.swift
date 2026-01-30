@@ -28,20 +28,24 @@ class IGTradingService {
     var isDemo: Bool = true // Toggle for demo/live
     
     private init() {
+        // Initialize session first
+        self.session = URLSession.shared
+        
         // Get credentials from Secrets.plist
+        var apiKeyValue = ""
+        var isDemoValue = true
+        
         if let path = Bundle.main.path(forResource: "Secrets", ofType: "plist"),
            let secrets = NSDictionary(contentsOfFile: path) as? [String: Any] {
-            self.apiKey = secrets["IG_API_KEY"] as? String ?? ""
-            self.isDemo = secrets["IG_IS_DEMO"] as? Bool ?? true
-        } else {
-            self.apiKey = ""
+            apiKeyValue = secrets["IG_API_KEY"] as? String ?? ""
+            isDemoValue = secrets["IG_IS_DEMO"] as? Bool ?? true
         }
         
-        self.baseURL = isDemo 
+        self.apiKey = apiKeyValue
+        self.isDemo = isDemoValue
+        self.baseURL = isDemoValue 
             ? "https://demo-api.ig.com/gateway/deal"
             : "https://api.ig.com/gateway/deal"
-        
-        self.session = URLSession.shared
     }
     
     // MARK: - Authentication
