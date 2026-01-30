@@ -15,10 +15,10 @@ workflows:
         distribution_type: app_store
         bundle_identifier: com.yantraworks.mystocksapp
       vars:
-        XCODE_WORKSPACE: "MyStocksApp.xcworkspace"
+        BUNDLE_ID: "com.yantraworks.mystocksapp"
+        XCODE_PROJECT: "MyStocksApp.xcodeproj"
         XCODE_SCHEME: "MyStocksApp"
       xcode: 15.2
-      cocoapods: default
     
     triggering:
       events:
@@ -37,29 +37,20 @@ workflows:
       cancel_previous_builds: true
     
     scripts:
-      # Generate Xcode project if using Swift Package Manager
+      # Generate Xcode project from Swift Package
       - name: Generate Xcode project
         script: |
-          if [ -f "Package.swift" ]; then
-            swift package generate-xcodeproj
-          fi
-      
-      # Install CocoaPods dependencies if Podfile exists
-      - name: Install CocoaPods dependencies
-        script: |
-          if [ -f "Podfile" ]; then
-            pod install
-          fi
+          swift package generate-xcodeproj
       
       # Set up keychain for code signing
       - name: Set up keychain
         script: |
           keychain initialize
       
-      # Fetch signing files from App Store Connect
+      # Fetch signing files with explicit bundle ID
       - name: Fetch signing files
         script: |
-          app-store-connect fetch-signing-files $(xcode-project detect-bundle-id) \
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
             --create
       
@@ -71,7 +62,7 @@ workflows:
       # Set up code signing settings
       - name: Set up code signing settings
         script: |
-          xcode-project use-profiles
+          xcode-project use-profiles --project "$XCODE_PROJECT"
       
       # Increment build number
       - name: Increment build number
@@ -84,10 +75,9 @@ workflows:
       - name: Build iOS app
         script: |
           xcode-project build-ipa \
-            --workspace "$XCODE_WORKSPACE" \
+            --project "$XCODE_PROJECT" \
             --scheme "$XCODE_SCHEME" \
-            --config Release \
-            --archive-flags="-destination 'generic/platform=iOS'"
+            --config Release
     
     artifacts:
       - build/ios/ipa/*.ipa
