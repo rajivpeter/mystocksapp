@@ -11,9 +11,6 @@ workflows:
       app_store_connect: Codemagic Build Key1
     
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.yantraworks.mystocksapp
       vars:
         BUNDLE_ID: "com.yantraworks.mystocksapp"
       xcode: latest
@@ -50,7 +47,14 @@ workflows:
         script: |
           keychain initialize
       
-      # Add certificates to keychain (automatic from ios_signing)
+      # Fetch and CREATE signing files (certificate + profile)
+      - name: Fetch signing files
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+      
+      # Add certificates to keychain
       - name: Add certificates to keychain
         script: |
           keychain add-certificates
