@@ -14,7 +14,7 @@ workflows:
         BUNDLE_ID: "com.yantraworks.mystocksapp"
         XCODE_PROJECT: "MyStocksApp.xcodeproj"
         XCODE_SCHEME: "MyStocksApp"
-      xcode: 15.2
+      xcode: latest
     
     triggering:
       events:
@@ -109,7 +109,7 @@ workflows:
         - app_store_credentials
       vars:
         BUNDLE_ID: "com.yantraworks.mystocksapp"
-      xcode: 15.2
+      xcode: latest
     
     triggering:
       events:
@@ -170,7 +170,7 @@ workflows:
     instance_type: mac_mini_m2
     
     environment:
-      xcode: 15.2
+      xcode: latest
     
     triggering:
       events:
