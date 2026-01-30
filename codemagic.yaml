@@ -77,6 +77,19 @@ workflows:
         script: |
           xcodegen generate
       
+      # Set build number (auto-increment using Codemagic build number)
+      - name: Set build version
+        script: |
+          # Use Codemagic's BUILD_NUMBER for unique builds
+          BUILD_NUM=${BUILD_NUMBER:-1}
+          echo "Setting build number to: $BUILD_NUM"
+          
+          # Update Info.plist with new build number
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUM" MyStocksApp/Info.plist
+          
+          # Verify the change
+          echo "CFBundleVersion is now: $(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" MyStocksApp/Info.plist)"
+      
       # Set up keychain
       - name: Set up keychain
         script: |
