@@ -472,15 +472,6 @@ struct AboutView: View {
     }
 }
 
-struct StockDetailView: View {
-    let symbol: String
-    
-    var body: some View {
-        Text("Stock Detail: \(symbol)")
-            .navigationTitle(symbol)
-    }
-}
-
 // MARK: - Preview
 
 #Preview {
