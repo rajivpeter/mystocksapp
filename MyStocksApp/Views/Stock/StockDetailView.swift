@@ -1423,7 +1423,7 @@ struct AIPredictionSheet: View {
     let historicalData: [CandlestickData]
     
     @Environment(\.dismiss) private var dismiss
-    @State private var prediction: StockPrediction?
+    @State private var prediction: AIPredictionResult?
     @State private var isLoading = true
     
     var body: some View {
@@ -1574,7 +1574,7 @@ struct AIPredictionSheet: View {
         factors.append("Based on \(historicalData.count) days of price history")
         
         await MainActor.run {
-            prediction = StockPrediction(
+            prediction = AIPredictionResult(
                 signal: signal,
                 signalEmoji: emoji,
                 signalColor: color,
@@ -1590,7 +1590,7 @@ struct AIPredictionSheet: View {
     }
 }
 
-struct StockPrediction {
+struct AIPredictionResult {
     let signal: String
     let signalEmoji: String
     let signalColor: Color

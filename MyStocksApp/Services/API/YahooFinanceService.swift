@@ -60,7 +60,8 @@ class YahooFinanceService: MarketDataProvider {
         // Parse price module
         let priceData = result["price"] as? [String: Any] ?? [:]
         let summaryDetail = result["summaryDetail"] as? [String: Any] ?? [:]
-        let keyStats = result["defaultKeyStatistics"] as? [String: Any] ?? [:]
+        // Note: defaultKeyStatistics available for PEG ratio, etc. if needed:
+        // let keyStats = result["defaultKeyStatistics"] as? [String: Any] ?? [:]
         
         let currentPrice = extractNumber(from: priceData["regularMarketPrice"]) ?? 0
         let previousClose = extractNumber(from: priceData["regularMarketPreviousClose"]) ?? currentPrice
