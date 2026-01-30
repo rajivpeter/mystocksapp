@@ -557,10 +557,15 @@ struct StockDetailView: View {
         let alert = Alert(
             symbol: stock.symbol,
             alertType: type,
+            confidence: 75, // Default user confidence
+            urgency: .medium,
+            triggerPrice: target ?? stock.currentPrice,
             currentPrice: stock.currentPrice,
-            targetPrice: target,
-            reason: "User-created price alert"
+            reason: "User-created price alert",
+            stock: stock
         )
+        // Set target price after creation
+        alert.targetPrice = target
         modelContext.insert(alert)
         try? modelContext.save()
         showToast("Alert created for \(stock.symbol)")
@@ -1388,8 +1393,8 @@ struct SetAlertSheet: View {
                 
                 Section("Current Price") {
                     LabeledContent("Current", value: stock.formattedPrice)
-                    LabeledContent("52W High", value: "\(stock.currencySymbol)\(stock.high52Week, specifier: "%.2f")")
-                    LabeledContent("52W Low", value: "\(stock.currencySymbol)\(stock.low52Week, specifier: "%.2f")")
+                    LabeledContent("52W High", value: "\(stock.currencySymbol)\(String(format: "%.2f", stock.high52Week))")
+                    LabeledContent("52W Low", value: "\(stock.currencySymbol)\(String(format: "%.2f", stock.low52Week))")
                 }
             }
             .navigationTitle("Set Alert")
