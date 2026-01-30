@@ -30,17 +30,17 @@ This guide helps you set up Codemagic to build your iOS app from Windows without
 4. Select `rajivpeter/mystocksapp` repository
 5. Choose **codemagic.yaml** configuration
 
-### Add Environment Variables
+### Set Up App Store Connect Integration
 
-Go to **Settings** → **Environment variables** and add:
+1. Go to **Teams** → **Integrations** → **App Store Connect**
+2. Click **Connect**
+3. Enter your App Store Connect API key details:
+   - **Key ID**: Your API Key ID (e.g., `ABC123DEF4`)
+   - **Issuer ID**: Your Issuer ID (shown at top of Keys page)
+   - **API Key**: Upload or paste the contents of your `.p8` file
+4. Name the integration: `codemagic` (this matches the yaml config)
 
-| Variable Name | Value |
-|--------------|-------|
-| `APP_STORE_CONNECT_KEY_IDENTIFIER` | Your Key ID |
-| `APP_STORE_CONNECT_ISSUER_ID` | Your Issuer ID |
-| `APP_STORE_CONNECT_PRIVATE_KEY` | Contents of .p8 file |
-
-### Add Code Signing
+### Code Signing
 
 1. Go to **Settings** → **Code signing identities**
 2. Codemagic will automatically:

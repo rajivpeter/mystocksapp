@@ -7,6 +7,9 @@ workflows:
     max_build_duration: 60
     instance_type: mac_mini_m2
     
+    integrations:
+      app_store_connect: codemagic
+    
     environment:
       ios_signing:
         distribution_type: app_store
@@ -14,10 +17,6 @@ workflows:
       vars:
         XCODE_WORKSPACE: "MyStocksApp.xcworkspace"
         XCODE_SCHEME: "MyStocksApp"
-        APP_STORE_CONNECT_KEY_IDENTIFIER: $APP_STORE_CONNECT_KEY_IDENTIFIER
-        APP_STORE_CONNECT_ISSUER_ID: $APP_STORE_CONNECT_ISSUER_ID
-        APP_STORE_CONNECT_PRIVATE_KEY: $APP_STORE_CONNECT_PRIVATE_KEY
-        CERTIFICATE_PRIVATE_KEY: $CERTIFICATE_PRIVATE_KEY
       xcode: 15.2
       cocoapods: default
     
@@ -78,7 +77,7 @@ workflows:
       - name: Increment build number
         script: |
           cd $CM_BUILD_DIR
-          LATEST_BUILD_NUMBER=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_CONNECT_ISSUER_ID" || echo "0")
+          LATEST_BUILD_NUMBER=$(app-store-connect get-latest-testflight-build-number "$BUNDLE_ID" || echo "0")
           agvtool new-version -all $((LATEST_BUILD_NUMBER + 1))
       
       # Build the app
@@ -116,6 +115,9 @@ workflows:
     max_build_duration: 30
     instance_type: mac_mini_m2
     
+    integrations:
+      app_store_connect: codemagic
+    
     environment:
       ios_signing:
         distribution_type: development
@@ -152,8 +154,8 @@ workflows:
       - name: Build
         script: |
           xcode-project build-ipa \
-            --workspace "$XCODE_WORKSPACE" \
-            --scheme "$XCODE_SCHEME" \
+            --workspace "MyStocksApp.xcworkspace" \
+            --scheme "MyStocksApp" \
             --config Debug
     
     artifacts:
