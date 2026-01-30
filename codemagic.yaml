@@ -48,6 +48,12 @@ workflows:
         script: |
           keychain initialize
       
+      # Save private key to file
+      - name: Save API key
+        script: |
+          echo "$APP_STORE_CONNECT_PRIVATE_KEY" > /tmp/AuthKey.p8
+          echo "=== API Key file created ==="
+      
       # Create a new certificate with private key
       - name: Create certificate
         script: |
@@ -56,15 +62,10 @@ workflows:
             --type IOS_DISTRIBUTION \
             --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
             --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
-            --private-key @env:APP_STORE_CONNECT_PRIVATE_KEY \
+            --private-key @file:/tmp/AuthKey.p8 \
             --save
-          echo "=== Listing certificates after creation ==="
-          app-store-connect certificates list \
-            --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
-            --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
-            --private-key @env:APP_STORE_CONNECT_PRIVATE_KEY
       
-      # Fetch signing files using environment variables
+      # Fetch signing files
       - name: Fetch signing files
         script: |
           echo "=== Fetching signing files for $BUNDLE_ID ==="
@@ -73,7 +74,7 @@ workflows:
             --create \
             --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
             --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
-            --private-key @env:APP_STORE_CONNECT_PRIVATE_KEY
+            --private-key @file:/tmp/AuthKey.p8
       
       # Add certificates to keychain
       - name: Add certificates to keychain
