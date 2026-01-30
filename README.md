@@ -134,6 +134,7 @@ MyStocksApp/
 1. **Clone the repository**
 ```bash
 git clone https://github.com/rajivpeter/mystocksapp.git
+# Bundle ID: com.yantra.mystocksapp
 cd mystocksapp
 ```
 
