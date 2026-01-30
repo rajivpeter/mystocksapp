@@ -345,7 +345,7 @@ struct PortfolioView: View {
     }
     
     private var emptyPositionsView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 24) {
             Image(systemName: "chart.pie")
                 .font(.system(size: 48))
                 .foregroundColor(.gray)
@@ -354,22 +354,93 @@ struct PortfolioView: View {
                 .font(.headline)
                 .foregroundColor(.white)
             
-            Text("Add your first stock to start tracking your portfolio")
+            Text("Import your portfolio from your broker or add positions manually")
                 .font(.subheadline)
                 .foregroundColor(.gray)
                 .multilineTextAlignment(.center)
             
-            Button(action: { showingAddPosition = true }) {
-                Label("Add Position", systemImage: "plus.circle.fill")
-                    .font(.headline)
-                    .foregroundColor(.black)
+            // Import Options
+            VStack(spacing: 12) {
+                // Screenshot Import - Most Prominent
+                Button(action: { showingImport = true }) {
+                    HStack {
+                        Image(systemName: "camera.viewfinder")
+                            .font(.title2)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Import from Screenshot")
+                                .font(.headline)
+                            Text("Take a screenshot of your IG, Hargreaves, or ii portfolio")
+                                .font(.caption)
+                                .foregroundColor(.white.opacity(0.8))
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                    }
+                    .foregroundColor(.white)
                     .padding()
                     .background(Color.brandPrimary)
                     .cornerRadius(12)
+                }
+                
+                // CSV Import
+                Button(action: { showingImport = true }) {
+                    HStack {
+                        Image(systemName: "doc.text")
+                            .font(.title2)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Import from CSV")
+                                .font(.headline)
+                            Text("Upload a CSV file with your positions")
+                                .font(.caption)
+                                .foregroundColor(.white.opacity(0.7))
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                    }
+                    .foregroundColor(.white)
+                    .padding()
+                    .background(Color.gray.opacity(0.3))
+                    .cornerRadius(12)
+                }
+                
+                // Manual Entry
+                Button(action: { showingAddPosition = true }) {
+                    HStack {
+                        Image(systemName: "plus.circle")
+                            .font(.title2)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Add Manually")
+                                .font(.headline)
+                            Text("Enter positions one at a time")
+                                .font(.caption)
+                                .foregroundColor(.white.opacity(0.7))
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                    }
+                    .foregroundColor(.white)
+                    .padding()
+                    .background(Color.gray.opacity(0.3))
+                    .cornerRadius(12)
+                }
+            }
+            
+            // Supported Platforms
+            VStack(spacing: 8) {
+                Text("Supported Brokers")
+                    .font(.caption.bold())
+                    .foregroundColor(.gray)
+                
+                HStack(spacing: 16) {
+                    BrokerBadge(name: "IG", color: .red)
+                    BrokerBadge(name: "Hargreaves", color: .blue)
+                    BrokerBadge(name: "ii", color: .orange)
+                    BrokerBadge(name: "Freetrade", color: .purple)
+                }
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 40)
+        .padding(.vertical, 24)
     }
     
     // MARK: - Helpers
@@ -407,6 +478,21 @@ struct PortfolioView: View {
 }
 
 // MARK: - Supporting Views
+
+struct BrokerBadge: View {
+    let name: String
+    let color: Color
+    
+    var body: some View {
+        Text(name)
+            .font(.caption)
+            .foregroundColor(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.3))
+            .cornerRadius(8)
+    }
+}
 
 struct AllocationItem: View {
     let title: String

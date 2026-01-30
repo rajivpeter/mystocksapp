@@ -23,9 +23,23 @@ class YahooFinanceService: MarketDataProvider {
     // MARK: - Quote
     
     func fetchQuote(symbol: String) async throws -> StockQuote {
-        let url = URL(string: "\(baseURL)/v8/finance/chart/\(symbol)?interval=1d&range=1d")!
+        // Use the quoteSummary endpoint for more comprehensive data
+        let summaryURL = URL(string: "\(baseURL)/v10/finance/quoteSummary/\(symbol)?modules=price,summaryDetail,defaultKeyStatistics")!
         
-        let (data, response) = try await session.data(from: url)
+        do {
+            let (summaryData, summaryResponse) = try await session.data(from: summaryURL)
+            
+            if let httpResponse = summaryResponse as? HTTPURLResponse,
+               httpResponse.statusCode == 200 {
+                return try parseQuoteSummary(data: summaryData, symbol: symbol)
+            }
+        } catch {
+            print("Quote summary failed, falling back to chart: \(error)")
+        }
+        
+        // Fallback to chart endpoint
+        let chartURL = URL(string: "\(baseURL)/v8/finance/chart/\(symbol)?interval=1d&range=1d")!
+        let (data, response) = try await session.data(from: chartURL)
         
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
@@ -33,6 +47,64 @@ class YahooFinanceService: MarketDataProvider {
         }
         
         return try parseQuote(data: data, symbol: symbol)
+    }
+    
+    private func parseQuoteSummary(data: Data, symbol: String) throws -> StockQuote {
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        
+        guard let quoteSummary = json?["quoteSummary"] as? [String: Any],
+              let result = (quoteSummary["result"] as? [[String: Any]])?.first else {
+            throw MarketDataError.parseError
+        }
+        
+        // Parse price module
+        let priceData = result["price"] as? [String: Any] ?? [:]
+        let summaryDetail = result["summaryDetail"] as? [String: Any] ?? [:]
+        let keyStats = result["defaultKeyStatistics"] as? [String: Any] ?? [:]
+        
+        let currentPrice = extractNumber(from: priceData["regularMarketPrice"]) ?? 0
+        let previousClose = extractNumber(from: priceData["regularMarketPreviousClose"]) ?? currentPrice
+        let open = extractNumber(from: priceData["regularMarketOpen"]) ?? currentPrice
+        let high = extractNumber(from: priceData["regularMarketDayHigh"]) ?? currentPrice
+        let low = extractNumber(from: priceData["regularMarketDayLow"]) ?? currentPrice
+        let volume = Int64(extractNumber(from: priceData["regularMarketVolume"]) ?? 0)
+        
+        let currency = priceData["currency"] as? String ?? "USD"
+        let exchange = priceData["exchangeName"] as? String ?? "UNKNOWN"
+        let name = priceData["shortName"] as? String ?? priceData["longName"] as? String ?? symbol
+        
+        let high52Week = extractNumber(from: summaryDetail["fiftyTwoWeekHigh"]) ?? high
+        let low52Week = extractNumber(from: summaryDetail["fiftyTwoWeekLow"]) ?? low
+        
+        // Extract valuation metrics
+        let marketCap = extractNumber(from: priceData["marketCap"])
+        let peRatio = extractNumber(from: summaryDetail["trailingPE"])
+        
+        return StockQuote(
+            symbol: symbol,
+            name: name,
+            exchange: exchange,
+            currency: currency,
+            currentPrice: currentPrice,
+            previousClose: previousClose,
+            open: open,
+            high: high,
+            low: low,
+            volume: volume,
+            high52Week: high52Week,
+            low52Week: low52Week,
+            marketCap: marketCap,
+            peRatio: peRatio,
+            timestamp: Date()
+        )
+    }
+    
+    /// Extract number from Yahoo's nested format (e.g., {"raw": 123.45, "fmt": "123.45"})
+    private func extractNumber(from value: Any?) -> Double? {
+        if let dict = value as? [String: Any] {
+            return dict["raw"] as? Double
+        }
+        return value as? Double
     }
     
     private func parseQuote(data: Data, symbol: String) throws -> StockQuote {

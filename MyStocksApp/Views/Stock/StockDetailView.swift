@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 import Charts
 
 struct StockDetailView: View {
@@ -20,8 +21,15 @@ struct StockDetailView: View {
     @State private var error: String?
     @State private var selectedPattern: PatternAnnotation?
     @State private var showPatternEducation = false
+    @State private var showAlertSetup = false
+    @State private var showAIPrediction = false
+    @State private var showAddToPortfolio = false
+    @State private var showAddToWatchlist = false
+    @State private var alertMessage: String?
+    @State private var showAlertToast = false
     
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     
     enum ChartType: String, CaseIterable {
         case candlestick = "Candles"
@@ -225,7 +233,10 @@ struct StockDetailView: View {
     
     // MARK: - Patterns Section (Learn by Doing)
     private var patternsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        // Deduplicate patterns - only show each pattern type once
+        let uniquePatterns = deduplicatePatterns(detectedPatterns)
+        
+        return VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Image(systemName: "sparkles")
                     .foregroundColor(.yellow)
@@ -240,8 +251,8 @@ struct StockDetailView: View {
             
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    ForEach(detectedPatterns) { pattern in
-                        DetectedPatternCard(pattern: pattern)
+                    ForEach(uniquePatterns) { pattern in
+                        DetectedPatternCard(pattern: pattern, count: countPatternOccurrences(pattern.patternName))
                             .onTapGesture {
                                 selectedPattern = pattern
                                 showPatternEducation = true
@@ -253,6 +264,23 @@ struct StockDetailView: View {
         }
         .padding(.vertical)
         .background(Color.gray.opacity(0.1))
+    }
+    
+    /// Deduplicate patterns - keep only first occurrence of each pattern type
+    private func deduplicatePatterns(_ patterns: [PatternAnnotation]) -> [PatternAnnotation] {
+        var seen = Set<String>()
+        return patterns.filter { pattern in
+            if seen.contains(pattern.patternName) {
+                return false
+            }
+            seen.insert(pattern.patternName)
+            return true
+        }
+    }
+    
+    /// Count how many times a pattern type appears
+    private func countPatternOccurrences(_ patternName: String) -> Int {
+        detectedPatterns.filter { $0.patternName == patternName }.count
     }
     
     // MARK: - Metrics Section
@@ -465,25 +493,102 @@ struct StockDetailView: View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
                 ActionButton(title: "Add to Portfolio", icon: "plus.circle.fill", color: .green) {
-                    // TODO: Add to portfolio
+                    showAddToPortfolio = true
                 }
                 
                 ActionButton(title: "Set Alert", icon: "bell.fill", color: .orange) {
-                    // TODO: Set alert
+                    showAlertSetup = true
                 }
             }
             
             HStack(spacing: 12) {
                 ActionButton(title: "AI Prediction", icon: "brain", color: .purple) {
-                    // TODO: Get prediction
+                    showAIPrediction = true
                 }
                 
                 ActionButton(title: "Add to Watchlist", icon: "star.fill", color: .yellow) {
-                    // TODO: Add to watchlist
+                    addToWatchlist(stock)
                 }
+            }
+            
+            // Toast message
+            if showAlertToast, let message = alertMessage {
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundColor(.white)
+                    .padding()
+                    .background(Color.green.opacity(0.9))
+                    .cornerRadius(12)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .padding()
+        .sheet(isPresented: $showAlertSetup) {
+            SetAlertSheet(stock: stock) { alertType, targetPrice in
+                createAlert(for: stock, type: alertType, target: targetPrice)
+            }
+        }
+        .sheet(isPresented: $showAIPrediction) {
+            AIPredictionSheet(stock: stock, historicalData: historicalData)
+        }
+        .sheet(isPresented: $showAddToPortfolio) {
+            AddToPortfolioSheet(stock: stock) { shares, avgCost in
+                addToPortfolio(stock: stock, shares: shares, avgCost: avgCost)
+            }
+        }
+    }
+    
+    // MARK: - Action Implementations
+    
+    private func addToWatchlist(_ stock: Stock) {
+        // Save to UserDefaults for now (could be SwiftData)
+        var watchlist = UserDefaults.standard.stringArray(forKey: "watchlist") ?? []
+        if !watchlist.contains(stock.symbol) {
+            watchlist.append(stock.symbol)
+            UserDefaults.standard.set(watchlist, forKey: "watchlist")
+            showToast("Added \(stock.symbol) to watchlist")
+        } else {
+            showToast("\(stock.symbol) is already in watchlist")
+        }
+    }
+    
+    private func createAlert(for stock: Stock, type: AlertType, target: Double?) {
+        let alert = Alert(
+            symbol: stock.symbol,
+            alertType: type,
+            currentPrice: stock.currentPrice,
+            targetPrice: target,
+            reason: "User-created price alert"
+        )
+        modelContext.insert(alert)
+        try? modelContext.save()
+        showToast("Alert created for \(stock.symbol)")
+    }
+    
+    private func addToPortfolio(stock: Stock, shares: Double, avgCost: Double) {
+        let position = Position(
+            symbol: stock.symbol,
+            shares: shares,
+            averageCost: avgCost,
+            purchaseDate: Date(),
+            stock: stock
+        )
+        modelContext.insert(stock)
+        modelContext.insert(position)
+        try? modelContext.save()
+        showToast("Added \(shares) shares of \(stock.symbol)")
+    }
+    
+    private func showToast(_ message: String) {
+        alertMessage = message
+        withAnimation {
+            showAlertToast = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation {
+                showAlertToast = false
+            }
+        }
     }
     
     // MARK: - Loading & Error Views
@@ -523,14 +628,18 @@ struct StockDetailView: View {
         do {
             // Fetch stock data
             let fetchedStock = try await MarketDataService.shared.fetchStock(symbol: symbol)
-            await MainActor.run {
-                self.stock = fetchedStock
-            }
             
-            // Fetch historical data
+            // Fetch historical data for various periods to calculate performance
             await loadHistoricalData()
             
+            // Calculate historical performance from real data
+            await calculateHistoricalPerformance(for: fetchedStock)
+            
+            // Fetch additional metrics (technical indicators, fair value estimates)
+            await enrichStockData(fetchedStock)
+            
             await MainActor.run {
+                self.stock = fetchedStock
                 isLoading = false
             }
         } catch {
@@ -539,6 +648,166 @@ struct StockDetailView: View {
                 isLoading = false
             }
         }
+    }
+    
+    /// Calculate historical performance from actual price data
+    private func calculateHistoricalPerformance(for stock: Stock) async {
+        do {
+            // Fetch 5-year historical data for comprehensive performance calculation
+            let fiveYearData = try await MarketDataService.shared.fetchHistoricalData(symbol: symbol, period: .fiveYears)
+            
+            guard !fiveYearData.isEmpty else { return }
+            
+            let currentPrice = fiveYearData.last?.close ?? stock.currentPrice
+            
+            // Calculate changes for different periods
+            if let dayAgo = findPriceFromDaysAgo(fiveYearData, days: 1) {
+                stock.change1D = calculateChange(from: dayAgo, to: currentPrice)
+            }
+            if let weekAgo = findPriceFromDaysAgo(fiveYearData, days: 7) {
+                stock.change1W = calculateChange(from: weekAgo, to: currentPrice)
+            }
+            if let monthAgo = findPriceFromDaysAgo(fiveYearData, days: 30) {
+                stock.change1M = calculateChange(from: monthAgo, to: currentPrice)
+            }
+            if let threeMonthsAgo = findPriceFromDaysAgo(fiveYearData, days: 90) {
+                stock.change3M = calculateChange(from: threeMonthsAgo, to: currentPrice)
+            }
+            if let yearAgo = findPriceFromDaysAgo(fiveYearData, days: 365) {
+                stock.change1Y = calculateChange(from: yearAgo, to: currentPrice)
+            }
+            if let threeYearsAgo = findPriceFromDaysAgo(fiveYearData, days: 1095) {
+                stock.change3Y = calculateChange(from: threeYearsAgo, to: currentPrice)
+            }
+            if let fiveYearsAgo = findPriceFromDaysAgo(fiveYearData, days: 1825) {
+                stock.change5Y = calculateChange(from: fiveYearsAgo, to: currentPrice)
+            }
+            
+        } catch {
+            print("Failed to calculate historical performance: \(error)")
+        }
+    }
+    
+    private func findPriceFromDaysAgo(_ data: [OHLCV], days: Int) -> Double? {
+        let targetDate = Calendar.current.date(byAdding: .day, value: -days, to: Date()) ?? Date()
+        
+        // Find closest data point to target date
+        let sorted = data.sorted { abs($0.date.timeIntervalSince(targetDate)) < abs($1.date.timeIntervalSince(targetDate)) }
+        return sorted.first?.close
+    }
+    
+    private func calculateChange(from oldPrice: Double, to newPrice: Double) -> Double {
+        guard oldPrice > 0 else { return 0 }
+        return ((newPrice - oldPrice) / oldPrice) * 100
+    }
+    
+    /// Enrich stock with additional metrics (technical indicators, estimates)
+    private func enrichStockData(_ stock: Stock) async {
+        guard !historicalData.isEmpty else { return }
+        
+        let closes = historicalData.map { $0.close }
+        
+        // Calculate RSI (14-period)
+        if closes.count >= 14 {
+            stock.rsi14 = calculateRSI(closes: closes, period: 14)
+        }
+        
+        // Calculate Moving Averages
+        if closes.count >= 20 {
+            stock.sma20 = calculateSMA(closes: closes, period: 20)
+        }
+        if closes.count >= 50 {
+            stock.sma50 = calculateSMA(closes: closes, period: 50)
+        }
+        if closes.count >= 200 {
+            stock.sma200 = calculateSMA(closes: closes, period: 200)
+        }
+        
+        // Calculate MACD
+        if closes.count >= 26 {
+            let (macd, signal) = calculateMACD(closes: closes)
+            stock.macd = macd
+            stock.macdSignal = signal
+        }
+        
+        // Estimate fair value using simple DCF-like model (simplified for demo)
+        // In production, this would come from a more sophisticated model or API
+        stock.fairValue = estimateFairValue(stock: stock)
+    }
+    
+    // MARK: - Technical Indicator Calculations
+    
+    private func calculateRSI(closes: [Double], period: Int) -> Double {
+        guard closes.count > period else { return 50 }
+        
+        var gains: [Double] = []
+        var losses: [Double] = []
+        
+        for i in 1..<closes.count {
+            let change = closes[i] - closes[i-1]
+            if change >= 0 {
+                gains.append(change)
+                losses.append(0)
+            } else {
+                gains.append(0)
+                losses.append(abs(change))
+            }
+        }
+        
+        guard gains.count >= period else { return 50 }
+        
+        let avgGain = gains.suffix(period).reduce(0, +) / Double(period)
+        let avgLoss = losses.suffix(period).reduce(0, +) / Double(period)
+        
+        if avgLoss == 0 { return 100 }
+        
+        let rs = avgGain / avgLoss
+        return 100 - (100 / (1 + rs))
+    }
+    
+    private func calculateSMA(closes: [Double], period: Int) -> Double {
+        guard closes.count >= period else { return closes.last ?? 0 }
+        return closes.suffix(period).reduce(0, +) / Double(period)
+    }
+    
+    private func calculateMACD(closes: [Double]) -> (Double, Double) {
+        let ema12 = calculateEMA(closes: closes, period: 12)
+        let ema26 = calculateEMA(closes: closes, period: 26)
+        let macd = ema12 - ema26
+        
+        // Signal line is 9-period EMA of MACD (simplified)
+        let signal = macd * 0.9 // Simplified for demo
+        
+        return (macd, signal)
+    }
+    
+    private func calculateEMA(closes: [Double], period: Int) -> Double {
+        guard closes.count >= period else { return closes.last ?? 0 }
+        
+        let multiplier = 2.0 / Double(period + 1)
+        var ema = closes.prefix(period).reduce(0, +) / Double(period)
+        
+        for i in period..<closes.count {
+            ema = (closes[i] - ema) * multiplier + ema
+        }
+        
+        return ema
+    }
+    
+    private func estimateFairValue(stock: Stock) -> Double {
+        // Simple fair value estimate based on historical average P/E and current earnings
+        // This is a simplified model - real fair value calculation would be more sophisticated
+        let currentPrice = stock.currentPrice
+        
+        if let pe = stock.peRatio, pe > 0 {
+            // Assume historical average P/E is around 15-20 for most stocks
+            let targetPE = 17.5
+            return currentPrice * (targetPE / pe)
+        }
+        
+        // Fallback: estimate based on 52-week range midpoint with some adjustment
+        let midpoint = (stock.high52Week + stock.low52Week) / 2
+        return midpoint * 1.05 // Slight premium for growth assumption
     }
     
     private func loadHistoricalData() async {
@@ -686,6 +955,7 @@ struct StockDetailView: View {
 
 struct DetectedPatternCard: View {
     let pattern: PatternAnnotation
+    var count: Int = 1
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -694,6 +964,17 @@ struct DetectedPatternCard: View {
                     .foregroundColor(pattern.isBullish ? .green : .red)
                 Text(pattern.patternName)
                     .font(.subheadline.bold())
+                
+                Spacer()
+                
+                if count > 1 {
+                    Text("×\(count)")
+                        .font(.caption.bold())
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.blue.opacity(0.3))
+                        .cornerRadius(8)
+                }
             }
             
             Text(pattern.description)
@@ -708,10 +989,16 @@ struct DetectedPatternCard: View {
                 Text("\(pattern.confidence)%")
                     .font(.caption.bold())
                     .foregroundColor(pattern.confidence > 70 ? .green : .orange)
+                
+                Spacer()
+                
+                Image(systemName: "chevron.right.circle.fill")
+                    .foregroundColor(.accentColor)
+                    .font(.caption)
             }
         }
         .padding()
-        .frame(width: 200)
+        .frame(width: 220)
         .background(Color.gray.opacity(0.2))
         .cornerRadius(12)
     }
@@ -1007,6 +1294,362 @@ struct StrategyCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(color.opacity(0.1))
         .cornerRadius(12)
+    }
+}
+
+// MARK: - Set Alert Sheet
+struct SetAlertSheet: View {
+    let stock: Stock
+    let onSave: (AlertType, Double?) -> Void
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var alertType: AlertType = .buy
+    @State private var targetPrice: String = ""
+    @State private var usePercentage = false
+    @State private var percentageChange: String = "5"
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Alert Type") {
+                    Picker("Type", selection: $alertType) {
+                        Text("Price Above").tag(AlertType.targetReached)
+                        Text("Price Below").tag(AlertType.stopLossTriggered)
+                        Text("Buy Signal").tag(AlertType.buy)
+                        Text("Sell Signal").tag(AlertType.sell)
+                    }
+                    .pickerStyle(.menu)
+                }
+                
+                Section("Target Price") {
+                    Toggle("Use Percentage", isOn: $usePercentage)
+                    
+                    if usePercentage {
+                        HStack {
+                            TextField("Percentage", text: $percentageChange)
+                                .keyboardType(.decimalPad)
+                            Text("%")
+                        }
+                        
+                        if let pct = Double(percentageChange) {
+                            let target = alertType == .stopLossTriggered 
+                                ? stock.currentPrice * (1 - pct/100)
+                                : stock.currentPrice * (1 + pct/100)
+                            Text("Target: \(stock.currencySymbol)\(target, specifier: "%.2f")")
+                                .foregroundColor(.secondary)
+                        }
+                    } else {
+                        HStack {
+                            Text(stock.currencySymbol)
+                            TextField("Target Price", text: $targetPrice)
+                                .keyboardType(.decimalPad)
+                        }
+                    }
+                }
+                
+                Section("Current Price") {
+                    LabeledContent("Current", value: stock.formattedPrice)
+                    LabeledContent("52W High", value: "\(stock.currencySymbol)\(stock.high52Week, specifier: "%.2f")")
+                    LabeledContent("52W Low", value: "\(stock.currencySymbol)\(stock.low52Week, specifier: "%.2f")")
+                }
+            }
+            .navigationTitle("Set Alert")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        let target: Double?
+                        if usePercentage, let pct = Double(percentageChange) {
+                            target = alertType == .stopLossTriggered 
+                                ? stock.currentPrice * (1 - pct/100)
+                                : stock.currentPrice * (1 + pct/100)
+                        } else {
+                            target = Double(targetPrice)
+                        }
+                        onSave(alertType, target)
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - AI Prediction Sheet
+struct AIPredictionSheet: View {
+    let stock: Stock
+    let historicalData: [CandlestickData]
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var prediction: StockPrediction?
+    @State private var isLoading = true
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 20) {
+                    if isLoading {
+                        ProgressView("Analyzing \(stock.symbol)...")
+                            .padding(.vertical, 40)
+                    } else if let pred = prediction {
+                        // Prediction Header
+                        VStack(spacing: 8) {
+                            Text(pred.signalEmoji)
+                                .font(.system(size: 64))
+                            
+                            Text(pred.signal)
+                                .font(.title.bold())
+                                .foregroundColor(pred.signalColor)
+                            
+                            Text("Confidence: \(pred.confidence)%")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(pred.signalColor.opacity(0.1))
+                        .cornerRadius(16)
+                        
+                        // Price Predictions
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("Price Predictions")
+                                .font(.headline)
+                            
+                            PredictionRow(period: "1 Day", price: pred.predicted1D, change: pred.change1D)
+                            PredictionRow(period: "5 Days", price: pred.predicted5D, change: pred.change5D)
+                            PredictionRow(period: "30 Days", price: pred.predicted30D, change: pred.change30D)
+                        }
+                        .padding()
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(12)
+                        
+                        // Analysis
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Analysis")
+                                .font(.headline)
+                            
+                            ForEach(pred.factors, id: \.self) { factor in
+                                HStack(alignment: .top, spacing: 8) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.green)
+                                    Text(factor)
+                                        .font(.subheadline)
+                                }
+                            }
+                        }
+                        .padding()
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(12)
+                        
+                        // Disclaimer
+                        Text("AI predictions are for educational purposes only. Always do your own research before making investment decisions.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding()
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("AI Prediction")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .task {
+                await generatePrediction()
+            }
+        }
+    }
+    
+    private func generatePrediction() async {
+        // Simulate AI prediction based on technical indicators
+        try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5s delay for effect
+        
+        let closes = historicalData.map { $0.close }
+        guard !closes.isEmpty else {
+            await MainActor.run { isLoading = false }
+            return
+        }
+        
+        // Calculate simple momentum indicators
+        let sma20 = closes.count >= 20 ? closes.suffix(20).reduce(0, +) / 20 : closes.last ?? 0
+        let sma50 = closes.count >= 50 ? closes.suffix(50).reduce(0, +) / 50 : closes.last ?? 0
+        let currentPrice = closes.last ?? stock.currentPrice
+        
+        // Simple scoring
+        var bullishScore = 50
+        
+        if currentPrice > sma20 { bullishScore += 15 }
+        if currentPrice > sma50 { bullishScore += 15 }
+        if let rsi = stock.rsi14 {
+            if rsi < 30 { bullishScore += 20 } // Oversold
+            else if rsi > 70 { bullishScore -= 20 } // Overbought
+        }
+        
+        let signal: String
+        let emoji: String
+        let color: Color
+        
+        if bullishScore >= 70 {
+            signal = "STRONG BUY"
+            emoji = "🚀"
+            color = .green
+        } else if bullishScore >= 55 {
+            signal = "BUY"
+            emoji = "🟢"
+            color = .green.opacity(0.8)
+        } else if bullishScore <= 30 {
+            signal = "STRONG SELL"
+            emoji = "🔴"
+            color = .red
+        } else if bullishScore <= 45 {
+            signal = "SELL"
+            emoji = "🟠"
+            color = .orange
+        } else {
+            signal = "HOLD"
+            emoji = "⚪"
+            color = .gray
+        }
+        
+        // Generate price predictions
+        let momentum = (currentPrice - sma20) / sma20
+        let pred1D = currentPrice * (1 + momentum * 0.1)
+        let pred5D = currentPrice * (1 + momentum * 0.3)
+        let pred30D = currentPrice * (1 + momentum * 0.8)
+        
+        var factors: [String] = []
+        if currentPrice > sma20 { factors.append("Price above 20-day moving average") }
+        if currentPrice > sma50 { factors.append("Price above 50-day moving average") }
+        if let rsi = stock.rsi14 {
+            if rsi < 30 { factors.append("RSI indicates oversold conditions") }
+            else if rsi > 70 { factors.append("RSI indicates overbought conditions") }
+            else { factors.append("RSI at neutral level (\(Int(rsi)))") }
+        }
+        factors.append("Based on \(historicalData.count) days of price history")
+        
+        await MainActor.run {
+            prediction = StockPrediction(
+                signal: signal,
+                signalEmoji: emoji,
+                signalColor: color,
+                confidence: bullishScore,
+                predicted1D: pred1D,
+                predicted5D: pred5D,
+                predicted30D: pred30D,
+                currentPrice: currentPrice,
+                factors: factors
+            )
+            isLoading = false
+        }
+    }
+}
+
+struct StockPrediction {
+    let signal: String
+    let signalEmoji: String
+    let signalColor: Color
+    let confidence: Int
+    let predicted1D: Double
+    let predicted5D: Double
+    let predicted30D: Double
+    let currentPrice: Double
+    let factors: [String]
+    
+    var change1D: Double { ((predicted1D - currentPrice) / currentPrice) * 100 }
+    var change5D: Double { ((predicted5D - currentPrice) / currentPrice) * 100 }
+    var change30D: Double { ((predicted30D - currentPrice) / currentPrice) * 100 }
+}
+
+struct PredictionRow: View {
+    let period: String
+    let price: Double
+    let change: Double
+    
+    var body: some View {
+        HStack {
+            Text(period)
+                .font(.subheadline)
+            Spacer()
+            VStack(alignment: .trailing) {
+                Text("$\(price, specifier: "%.2f")")
+                    .font(.subheadline.bold())
+                Text("\(change >= 0 ? "+" : "")\(change, specifier: "%.1f")%")
+                    .font(.caption)
+                    .foregroundColor(change >= 0 ? .green : .red)
+            }
+        }
+    }
+}
+
+// MARK: - Add to Portfolio Sheet
+struct AddToPortfolioSheet: View {
+    let stock: Stock
+    let onSave: (Double, Double) -> Void
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var shares: String = ""
+    @State private var avgCost: String = ""
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Stock") {
+                    LabeledContent("Symbol", value: stock.symbol)
+                    LabeledContent("Current Price", value: stock.formattedPrice)
+                }
+                
+                Section("Position Details") {
+                    TextField("Number of Shares", text: $shares)
+                        .keyboardType(.decimalPad)
+                    
+                    HStack {
+                        Text(stock.currencySymbol)
+                        TextField("Average Cost", text: $avgCost)
+                            .keyboardType(.decimalPad)
+                    }
+                }
+                
+                if let sharesNum = Double(shares), let costNum = Double(avgCost) {
+                    Section("Summary") {
+                        LabeledContent("Total Value", value: "\(stock.currencySymbol)\((sharesNum * costNum).formatted())")
+                        
+                        let currentValue = sharesNum * stock.currentPrice
+                        let costBasis = sharesNum * costNum
+                        let pnl = currentValue - costBasis
+                        let pnlPercent = (pnl / costBasis) * 100
+                        
+                        LabeledContent("Current Value", value: "\(stock.currencySymbol)\(currentValue.formatted())")
+                        LabeledContent("P&L") {
+                            Text("\(pnl >= 0 ? "+" : "")\(stock.currencySymbol)\(pnl.formatted()) (\(pnlPercent >= 0 ? "+" : "")\(pnlPercent, specifier: "%.1f")%)")
+                                .foregroundColor(pnl >= 0 ? .green : .red)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Add to Portfolio")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") {
+                        if let sharesNum = Double(shares), let costNum = Double(avgCost) {
+                            onSave(sharesNum, costNum)
+                            dismiss()
+                        }
+                    }
+                    .disabled(shares.isEmpty || avgCost.isEmpty)
+                }
+            }
+        }
     }
 }
 

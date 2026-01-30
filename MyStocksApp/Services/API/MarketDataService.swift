@@ -143,7 +143,7 @@ class MarketDataService {
     /// Fetch stock (converts quote to Stock model)
     func fetchStock(symbol: String) async throws -> Stock {
         let quote = try await fetchQuote(symbol: symbol)
-        return Stock(
+        let stock = Stock(
             symbol: quote.symbol,
             name: quote.name,
             exchange: quote.exchange,
@@ -158,6 +158,12 @@ class MarketDataService {
             high52Week: quote.high52Week,
             low52Week: quote.low52Week
         )
+        
+        // Add additional data from quote
+        stock.marketCap = quote.marketCap
+        stock.peRatio = quote.peRatio
+        
+        return stock
     }
 }
 
