@@ -47,12 +47,20 @@ workflows:
         script: |
           keychain initialize
       
+      # Create iOS Distribution certificate if needed
+      - name: Create certificate
+        script: |
+          app-store-connect certificates create \
+            --type IOS_DISTRIBUTION \
+            --save || echo "Certificate already exists or created"
+      
       # Fetch signing files with explicit bundle ID
       - name: Fetch signing files
         script: |
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
-            --create
+            --create \
+            --verbose
       
       # Add certificates to keychain
       - name: Add certificates to keychain
