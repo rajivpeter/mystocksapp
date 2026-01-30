@@ -33,10 +33,15 @@ workflows:
       cancel_previous_builds: true
     
     scripts:
-      # Generate Xcode project from Swift Package
+      # Install xcodegen
+      - name: Install xcodegen
+        script: |
+          brew install xcodegen
+      
+      # Generate Xcode project
       - name: Generate Xcode project
         script: |
-          swift package generate-xcodeproj
+          xcodegen generate
       
       # Set up keychain for code signing
       - name: Set up keychain
@@ -60,28 +65,22 @@ workflows:
           keychain add-certificates
       
       # Set up code signing settings
-      - name: Set up code signing settings
+      - name: Set up code signing
         script: |
-          xcode-project use-profiles --project "$XCODE_PROJECT"
-      
-      # Set build number
-      - name: Set build number
-        script: |
-          cd $CM_BUILD_DIR
-          agvtool new-version -all 1
+          xcode-project use-profiles --project "MyStocksApp.xcodeproj"
       
       # Build the app
       - name: Build iOS app
         script: |
           xcode-project build-ipa \
-            --project "$XCODE_PROJECT" \
-            --scheme "$XCODE_SCHEME" \
+            --project "MyStocksApp.xcodeproj" \
+            --scheme "MyStocksApp" \
             --config Release
     
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
-      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+      - "**/*.dSYM"
     
     publishing:
       email:
@@ -123,8 +122,11 @@ workflows:
           source: true
     
     scripts:
+      - name: Install xcodegen
+        script: brew install xcodegen
+      
       - name: Generate Xcode project
-        script: swift package generate-xcodeproj
+        script: xcodegen generate
       
       - name: Set up keychain
         script: keychain initialize
@@ -142,7 +144,7 @@ workflows:
         script: keychain add-certificates
       
       - name: Use profiles
-        script: xcode-project use-profiles
+        script: xcode-project use-profiles --project "MyStocksApp.xcodeproj"
       
       - name: Build
         script: |
