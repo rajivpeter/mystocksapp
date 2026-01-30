@@ -146,7 +146,7 @@ class YahooFinanceService: MarketDataProvider {
             }
             
             let date = Date(timeIntervalSince1970: TimeInterval(timestamps[i]))
-            let volume = Int64(volumes[safe: i] ?? nil ?? 0)
+            let volume = Int64(volumes[safe: i] ?? 0)
             
             ohlcv.append(OHLCV(
                 date: date,

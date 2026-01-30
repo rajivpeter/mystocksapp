@@ -371,13 +371,18 @@ struct IGMarketSearchResponse: Codable {
 }
 
 struct IGWatchlist: Codable, Identifiable {
-    var id: String { "\(self.id)" }
-    
-    let id: String
+    let watchlistId: String
     let name: String
     let editable: Bool
     let deleteable: Bool
     let defaultSystemWatchlist: Bool
+    
+    var id: String { watchlistId }
+    
+    enum CodingKeys: String, CodingKey {
+        case watchlistId = "id"
+        case name, editable, deleteable, defaultSystemWatchlist
+    }
 }
 
 struct IGWatchlistsResponse: Codable {
