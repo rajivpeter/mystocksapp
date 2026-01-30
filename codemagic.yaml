@@ -7,13 +7,9 @@ workflows:
     max_build_duration: 60
     instance_type: mac_mini_m2
     
-    integrations:
-      app_store_connect: Codemagic Build Key
-    
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.yantraworks.mystocksapp
+      groups:
+        - app_store_credentials
       vars:
         BUNDLE_ID: "com.yantraworks.mystocksapp"
         XCODE_PROJECT: "MyStocksApp.xcodeproj"
@@ -42,40 +38,21 @@ workflows:
         script: |
           swift package generate-xcodeproj
       
-      # Debug: List available certificates
-      - name: List certificates
-        script: |
-          echo "=== Listing existing certificates ==="
-          app-store-connect certificates list --type IOS_DISTRIBUTION || echo "No certificates found"
-      
-      # Debug: List existing profiles
-      - name: List profiles
-        script: |
-          echo "=== Listing existing profiles ==="
-          app-store-connect profiles list || echo "No profiles found"
-      
       # Set up keychain for code signing
       - name: Set up keychain
         script: |
           keychain initialize
       
-      # Create iOS Distribution certificate
-      - name: Create distribution certificate
-        script: |
-          echo "=== Creating iOS Distribution certificate ==="
-          app-store-connect certificates create \
-            --type IOS_DISTRIBUTION \
-            --save \
-            --log-stream || echo "Certificate creation returned (may already exist)"
-      
-      # Fetch or create signing files
+      # Fetch signing files using environment variables
       - name: Fetch signing files
         script: |
           echo "=== Fetching signing files for $BUNDLE_ID ==="
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
             --create \
-            --log-stream
+            --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
+            --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
+            --private-key "$APP_STORE_CONNECT_PRIVATE_KEY"
       
       # Add certificates to keychain
       - name: Add certificates to keychain
@@ -109,17 +86,17 @@ workflows:
     publishing:
       email:
         recipients:
-          - rajiv@example.com
+          - rajivspeter@googlemail.com
         notify:
           success: true
           failure: true
       
       app_store_connect:
-        auth: integration
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
         submit_to_testflight: true
         submit_to_app_store: false
-        beta_groups:
-          - Internal Testers
   
   # Development build workflow
   ios-dev:
@@ -127,13 +104,11 @@ workflows:
     max_build_duration: 30
     instance_type: mac_mini_m2
     
-    integrations:
-      app_store_connect: Codemagic Build Key
-    
     environment:
-      ios_signing:
-        distribution_type: development
-        bundle_identifier: com.yantraworks.mystocksapp
+      groups:
+        - app_store_credentials
+      vars:
+        BUNDLE_ID: "com.yantraworks.mystocksapp"
       xcode: 15.2
     
     triggering:
@@ -148,14 +123,20 @@ workflows:
           source: true
     
     scripts:
+      - name: Generate Xcode project
+        script: swift package generate-xcodeproj
+      
       - name: Set up keychain
         script: keychain initialize
       
       - name: Fetch signing files
         script: |
-          app-store-connect fetch-signing-files $(xcode-project detect-bundle-id) \
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_DEVELOPMENT \
-            --create
+            --create \
+            --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
+            --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
+            --private-key "$APP_STORE_CONNECT_PRIVATE_KEY"
       
       - name: Add certificates
         script: keychain add-certificates
@@ -166,7 +147,7 @@ workflows:
       - name: Build
         script: |
           xcode-project build-ipa \
-            --workspace "MyStocksApp.xcworkspace" \
+            --project "MyStocksApp.xcodeproj" \
             --scheme "MyStocksApp" \
             --config Debug
     
@@ -177,7 +158,7 @@ workflows:
     publishing:
       email:
         recipients:
-          - rajiv@example.com
+          - rajivspeter@googlemail.com
         notify:
           success: false
           failure: true
