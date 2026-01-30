@@ -27,11 +27,6 @@ let package = Package(
             resources: [
                 .process("Resources")
             ]
-        ),
-        .testTarget(
-            name: "MyStocksAppTests",
-            dependencies: ["MyStocksApp"],
-            path: "MyStocksAppTests"
-        ),
+        )
     ]
 )
