@@ -52,8 +52,8 @@ struct ContentView: View {
         .tint(.brandPrimary)
         .preferredColorScheme(.dark)
         .onReceive(NotificationCenter.default.publisher(for: .navigateToStock)) { notification in
-            if let symbol = notification.userInfo?["symbol"] as? String {
-                // Handle navigation to stock
+            // Navigate to market tab when stock notification received
+            if notification.userInfo?["symbol"] is String {
                 selectedTab = .market
             }
         }

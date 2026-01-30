@@ -2,7 +2,7 @@
 //  MarketDataService.swift
 //  MyStocksApp
 //
-//  Unified market data service with multiple provider fallbacks
+//  Unified market data service with intelligent caching and multiple provider fallbacks
 //
 
 import Foundation
@@ -15,7 +15,7 @@ protocol MarketDataProvider {
     func fetchNews(symbol: String, limit: Int) async throws -> [NewsArticle]
 }
 
-/// Main market data service with provider fallbacks
+/// Main market data service with intelligent caching and provider fallbacks
 @Observable
 class MarketDataService {
     static let shared = MarketDataService()
@@ -24,11 +24,15 @@ class MarketDataService {
     private let alphaVantageService: AlphaVantageService
     private let yahooFinanceService: YahooFinanceService
     
-    private var cache: [String: CachedQuote] = [:]
-    private let cacheValiditySeconds: TimeInterval = 60 // 1 minute cache
+    /// Centralized cache manager
+    private let cacheManager = CacheManager.shared
     
     var isLoading = false
     var lastError: String?
+    
+    /// Statistics for API calls (for monitoring)
+    private(set) var apiCallCount = 0
+    private(set) var cacheHitCount = 0
     
     private init() {
         self.polygonService = PolygonService()
@@ -38,13 +42,18 @@ class MarketDataService {
     
     // MARK: - Public API
     
-    /// Fetch quote with automatic fallback
+    /// Fetch quote with intelligent caching
     func fetchQuote(symbol: String, forceRefresh: Bool = false) async throws -> StockQuote {
-        // Check cache first
-        if !forceRefresh, let cached = cache[symbol], cached.isValid {
-            return cached.quote
+        let upperSymbol = symbol.uppercased()
+        
+        // Check cache first (unless force refresh)
+        if !forceRefresh, let cached = cacheManager.getCachedQuote(symbol: upperSymbol) {
+            cacheHitCount += 1
+            print("📦 Cache HIT for \(upperSymbol) quote")
+            return cached
         }
         
+        apiCallCount += 1
         isLoading = true
         defer { isLoading = false }
         
@@ -59,15 +68,15 @@ class MarketDataService {
         
         for (name, provider) in providers {
             do {
-                let quote = try await provider.fetchQuote(symbol: symbol)
+                let quote = try await provider.fetchQuote(symbol: upperSymbol)
                 
                 // Cache successful result
-                cache[symbol] = CachedQuote(quote: quote, fetchedAt: Date())
+                cacheManager.cacheQuote(quote)
                 
-                print("✅ Fetched \(symbol) quote from \(name)")
+                print("✅ Fetched \(upperSymbol) quote from \(name) (API call #\(apiCallCount))")
                 return quote
             } catch {
-                print("⚠️ \(name) failed for \(symbol): \(error.localizedDescription)")
+                print("⚠️ \(name) failed for \(upperSymbol): \(error.localizedDescription)")
                 lastError = error
                 continue
             }
@@ -77,72 +86,196 @@ class MarketDataService {
         throw lastError ?? MarketDataError.allProvidersFailed
     }
     
-    /// Fetch multiple quotes
-    func fetchQuotes(symbols: [String]) async throws -> [StockQuote] {
-        try await withThrowingTaskGroup(of: StockQuote?.self) { group in
-            for symbol in symbols {
-                group.addTask {
-                    try? await self.fetchQuote(symbol: symbol)
-                }
+    /// Fetch multiple quotes efficiently with batching
+    func fetchQuotes(symbols: [String], forceRefresh: Bool = false) async throws -> [StockQuote] {
+        var results: [StockQuote] = []
+        var symbolsToFetch: [String] = []
+        
+        // First, check cache for each symbol
+        for symbol in symbols {
+            let upperSymbol = symbol.uppercased()
+            if !forceRefresh, let cached = cacheManager.getCachedQuote(symbol: upperSymbol) {
+                results.append(cached)
+                cacheHitCount += 1
+            } else {
+                symbolsToFetch.append(upperSymbol)
             }
+        }
+        
+        if !symbolsToFetch.isEmpty {
+            print("📡 Fetching \(symbolsToFetch.count) quotes (cached: \(results.count))")
             
-            var results: [StockQuote] = []
-            for try await quote in group {
-                if let quote = quote {
-                    results.append(quote)
+            // Batch fetch remaining symbols with concurrency limit
+            let batchSize = 5 // Limit concurrent requests
+            for batch in stride(from: 0, to: symbolsToFetch.count, by: batchSize) {
+                let batchEnd = min(batch + batchSize, symbolsToFetch.count)
+                let batchSymbols = Array(symbolsToFetch[batch..<batchEnd])
+                
+                let batchResults = try await withThrowingTaskGroup(of: StockQuote?.self) { group in
+                    for symbol in batchSymbols {
+                        group.addTask {
+                            try? await self.fetchQuote(symbol: symbol, forceRefresh: true)
+                        }
+                    }
+                    
+                    var batchQuotes: [StockQuote] = []
+                    for try await quote in group {
+                        if let quote = quote {
+                            batchQuotes.append(quote)
+                        }
+                    }
+                    return batchQuotes
+                }
+                
+                results.append(contentsOf: batchResults)
+                
+                // Small delay between batches to avoid rate limits
+                if batchEnd < symbolsToFetch.count {
+                    try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
                 }
             }
+        }
+        
+        return results
+    }
+    
+    /// Fetch historical OHLCV data with intelligent caching
+    func fetchHistoricalData(symbol: String, period: HistoricalPeriod, forceRefresh: Bool = false) async throws -> [OHLCV] {
+        let upperSymbol = symbol.uppercased()
+        
+        // Check cache first
+        if !forceRefresh, let cached = cacheManager.getCachedHistoricalData(symbol: upperSymbol, period: period) {
+            cacheHitCount += 1
+            return cached
+        }
+        
+        apiCallCount += 1
+        isLoading = true
+        defer { isLoading = false }
+        
+        print("📡 Fetching \(upperSymbol) \(period.rawValue) historical data (API call #\(apiCallCount))")
+        
+        // Try Yahoo first (best historical data)
+        do {
+            let data = try await yahooFinanceService.fetchHistoricalData(symbol: upperSymbol, period: period)
+            
+            // Cache the result
+            cacheManager.cacheHistoricalData(symbol: upperSymbol, period: period, data: data)
+            
+            return data
+        } catch {
+            // Fallback to Alpha Vantage
+            let data = try await alphaVantageService.fetchHistoricalData(symbol: upperSymbol, period: period)
+            
+            // Cache the result
+            cacheManager.cacheHistoricalData(symbol: upperSymbol, period: period, data: data)
+            
+            return data
+        }
+    }
+    
+    /// Prefetch historical data for multiple periods (efficient for stock detail view)
+    func prefetchHistoricalData(symbol: String, periods: [HistoricalPeriod]) async {
+        let upperSymbol = symbol.uppercased()
+        
+        // Only fetch periods not already cached
+        let periodsToFetch = periods.filter { period in
+            cacheManager.getCachedHistoricalData(symbol: upperSymbol, period: period) == nil
+        }
+        
+        guard !periodsToFetch.isEmpty else {
+            print("📦 All \(periods.count) periods already cached for \(upperSymbol)")
+            return
+        }
+        
+        print("📡 Prefetching \(periodsToFetch.count) historical periods for \(upperSymbol)")
+        
+        // Fetch in sequence to avoid rate limits
+        for period in periodsToFetch {
+            do {
+                _ = try await fetchHistoricalData(symbol: upperSymbol, period: period)
+                // Small delay between fetches
+                try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
+            } catch {
+                print("⚠️ Failed to prefetch \(period.rawValue) for \(upperSymbol)")
+            }
+        }
+    }
+    
+    /// Search for symbols with caching
+    func searchSymbols(query: String, forceRefresh: Bool = false) async throws -> [SymbolSearchResult] {
+        guard query.count >= 1 else { return [] }
+        
+        // Check cache first
+        if !forceRefresh, let cached = cacheManager.getCachedSearch(query: query) {
+            cacheHitCount += 1
+            print("📦 Cache HIT for search: \(query)")
+            return cached
+        }
+        
+        apiCallCount += 1
+        
+        // Try Yahoo first
+        do {
+            let results = try await yahooFinanceService.searchSymbols(query: query)
+            cacheManager.cacheSearch(query: query, results: results)
+            return results
+        } catch {
+            let results = try await alphaVantageService.searchSymbols(query: query)
+            cacheManager.cacheSearch(query: query, results: results)
             return results
         }
     }
     
-    /// Fetch historical OHLCV data
-    func fetchHistoricalData(symbol: String, period: HistoricalPeriod) async throws -> [OHLCV] {
-        isLoading = true
-        defer { isLoading = false }
+    /// Fetch news for a symbol with caching
+    func fetchNews(symbol: String, limit: Int = 10, forceRefresh: Bool = false) async throws -> [NewsArticle] {
+        let upperSymbol = symbol.uppercased()
         
-        // Try Yahoo first (best historical data)
-        do {
-            return try await yahooFinanceService.fetchHistoricalData(symbol: symbol, period: period)
-        } catch {
-            // Fallback to Alpha Vantage
-            return try await alphaVantageService.fetchHistoricalData(symbol: symbol, period: period)
+        // Check cache first
+        if !forceRefresh, let cached = cacheManager.getCachedNews(symbol: upperSymbol) {
+            cacheHitCount += 1
+            print("📦 Cache HIT for \(upperSymbol) news")
+            return Array(cached.prefix(limit))
         }
-    }
-    
-    /// Search for symbols
-    func searchSymbols(query: String) async throws -> [SymbolSearchResult] {
-        guard query.count >= 1 else { return [] }
         
-        // Try Yahoo first
-        do {
-            return try await yahooFinanceService.searchSymbols(query: query)
-        } catch {
-            return try await alphaVantageService.searchSymbols(query: query)
-        }
-    }
-    
-    /// Fetch news for a symbol
-    func fetchNews(symbol: String, limit: Int = 10) async throws -> [NewsArticle] {
+        apiCallCount += 1
+        
         // Try multiple sources
         var allNews: [NewsArticle] = []
         
-        if let yahooNews = try? await yahooFinanceService.fetchNews(symbol: symbol, limit: limit) {
+        if let yahooNews = try? await yahooFinanceService.fetchNews(symbol: upperSymbol, limit: limit) {
             allNews.append(contentsOf: yahooNews)
         }
         
         // Sort by date and deduplicate
-        return Array(allNews.sorted { $0.publishedAt > $1.publishedAt }.prefix(limit))
+        let sortedNews = Array(allNews.sorted { $0.publishedAt > $1.publishedAt }.prefix(limit))
+        
+        // Cache results
+        cacheManager.cacheNews(symbol: upperSymbol, articles: sortedNews)
+        
+        return sortedNews
     }
     
-    /// Clear cache
+    /// Clear all caches
     func clearCache() {
-        cache.removeAll()
+        cacheManager.clearAllCaches()
+        apiCallCount = 0
+        cacheHitCount = 0
     }
     
-    /// Fetch stock (converts quote to Stock model)
-    func fetchStock(symbol: String) async throws -> Stock {
-        let quote = try await fetchQuote(symbol: symbol)
+    /// Clear cache for specific symbol
+    func clearCache(for symbol: String) {
+        cacheManager.clearHistoricalCache(symbol: symbol)
+    }
+    
+    /// Prune expired cache entries
+    func pruneExpiredCache() {
+        cacheManager.pruneExpiredEntries()
+    }
+    
+    /// Fetch stock (converts quote to Stock model) with caching
+    func fetchStock(symbol: String, forceRefresh: Bool = false) async throws -> Stock {
+        let quote = try await fetchQuote(symbol: symbol, forceRefresh: forceRefresh)
         let stock = Stock(
             symbol: quote.symbol,
             name: quote.name,
@@ -164,6 +297,23 @@ class MarketDataService {
         stock.peRatio = quote.peRatio
         
         return stock
+    }
+    
+    // MARK: - Cache Statistics
+    
+    var cacheStats: CacheStatistics {
+        cacheManager.cacheStats
+    }
+    
+    var cacheEfficiency: Double {
+        let total = apiCallCount + cacheHitCount
+        guard total > 0 else { return 0 }
+        return Double(cacheHitCount) / Double(total) * 100
+    }
+    
+    /// Check if markets are currently open
+    var isMarketOpen: Bool {
+        cacheManager.isAnyMarketOpen
     }
 }
 

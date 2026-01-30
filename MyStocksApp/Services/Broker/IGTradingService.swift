@@ -374,7 +374,7 @@ struct IGMarketSearchResponse: Codable {
     let markets: [IGMarketSearchResult]
 }
 
-struct IGWatchlist: Codable, Identifiable {
+struct IGWatchlist: Identifiable {
     let watchlistId: String
     let name: String
     let editable: Bool
@@ -382,10 +382,21 @@ struct IGWatchlist: Codable, Identifiable {
     let defaultSystemWatchlist: Bool
     
     var id: String { watchlistId }
-    
+}
+
+extension IGWatchlist: Decodable {
     enum CodingKeys: String, CodingKey {
         case watchlistId = "id"
         case name, editable, deleteable, defaultSystemWatchlist
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        watchlistId = try container.decode(String.self, forKey: .watchlistId)
+        name = try container.decode(String.self, forKey: .name)
+        editable = try container.decode(Bool.self, forKey: .editable)
+        deleteable = try container.decode(Bool.self, forKey: .deleteable)
+        defaultSystemWatchlist = try container.decode(Bool.self, forKey: .defaultSystemWatchlist)
     }
 }
 

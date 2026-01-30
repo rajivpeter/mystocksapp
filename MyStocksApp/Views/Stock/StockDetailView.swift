@@ -621,27 +621,51 @@ struct StockDetailView: View {
     }
     
     // MARK: - Data Loading
+    
+    /// Cached 5-year data for technical calculations and performance - avoids redundant API calls
+    @State private var cachedFiveYearData: [OHLCV] = []
+    
     private func loadStockData() async {
         isLoading = true
         error = nil
         
         do {
-            // Fetch stock data
+            // Fetch stock data (uses cache if available)
             let fetchedStock = try await MarketDataService.shared.fetchStock(symbol: symbol)
             
-            // Fetch historical data for various periods to calculate performance
+            // Fetch 5-year data ONCE for both performance calculation and technical indicators
+            // This data is cached by CacheManager for up to 1 week
+            let fiveYearData = try await MarketDataService.shared.fetchHistoricalData(
+                symbol: symbol,
+                period: .fiveYears
+            )
+            
+            await MainActor.run {
+                self.cachedFiveYearData = fiveYearData
+            }
+            
+            // Calculate historical performance from the 5-year data
+            await calculateHistoricalPerformance(for: fetchedStock, using: fiveYearData)
+            
+            // Enrich with technical indicators using 5-year data (has enough points for SMA200)
+            await enrichStockData(fetchedStock, using: fiveYearData)
+            
+            // Now load the current period's historical data for chart display
             await loadHistoricalData()
-            
-            // Calculate historical performance from real data
-            await calculateHistoricalPerformance(for: fetchedStock)
-            
-            // Fetch additional metrics (technical indicators, fair value estimates)
-            await enrichStockData(fetchedStock)
             
             await MainActor.run {
                 self.stock = fetchedStock
                 isLoading = false
             }
+            
+            // Prefetch other commonly used periods in background (uses cache, won't duplicate)
+            Task.detached(priority: .background) {
+                await MarketDataService.shared.prefetchHistoricalData(
+                    symbol: self.symbol,
+                    periods: [.oneMonth, .threeMonths, .oneYear]
+                )
+            }
+            
         } catch {
             await MainActor.run {
                 self.error = error.localizedDescription
@@ -650,42 +674,39 @@ struct StockDetailView: View {
         }
     }
     
-    /// Calculate historical performance from actual price data
-    private func calculateHistoricalPerformance(for stock: Stock) async {
-        do {
-            // Fetch 5-year historical data for comprehensive performance calculation
-            let fiveYearData = try await MarketDataService.shared.fetchHistoricalData(symbol: symbol, period: .fiveYears)
-            
-            guard !fiveYearData.isEmpty else { return }
-            
-            let currentPrice = fiveYearData.last?.close ?? stock.currentPrice
-            
-            // Calculate changes for different periods
-            if let dayAgo = findPriceFromDaysAgo(fiveYearData, days: 1) {
-                stock.change1D = calculateChange(from: dayAgo, to: currentPrice)
-            }
-            if let weekAgo = findPriceFromDaysAgo(fiveYearData, days: 7) {
-                stock.change1W = calculateChange(from: weekAgo, to: currentPrice)
-            }
-            if let monthAgo = findPriceFromDaysAgo(fiveYearData, days: 30) {
-                stock.change1M = calculateChange(from: monthAgo, to: currentPrice)
-            }
-            if let threeMonthsAgo = findPriceFromDaysAgo(fiveYearData, days: 90) {
-                stock.change3M = calculateChange(from: threeMonthsAgo, to: currentPrice)
-            }
-            if let yearAgo = findPriceFromDaysAgo(fiveYearData, days: 365) {
-                stock.change1Y = calculateChange(from: yearAgo, to: currentPrice)
-            }
-            if let threeYearsAgo = findPriceFromDaysAgo(fiveYearData, days: 1095) {
-                stock.change3Y = calculateChange(from: threeYearsAgo, to: currentPrice)
-            }
-            if let fiveYearsAgo = findPriceFromDaysAgo(fiveYearData, days: 1825) {
-                stock.change5Y = calculateChange(from: fiveYearsAgo, to: currentPrice)
-            }
-            
-        } catch {
-            print("Failed to calculate historical performance: \(error)")
+    /// Calculate historical performance from cached price data (no API call if data is provided)
+    private func calculateHistoricalPerformance(for stock: Stock, using fiveYearData: [OHLCV]) async {
+        guard !fiveYearData.isEmpty else {
+            print("⚠️ No historical data available for performance calculation")
+            return
         }
+        
+        let currentPrice = fiveYearData.last?.close ?? stock.currentPrice
+        
+        // Calculate changes for different periods (all from the same cached dataset)
+        if let dayAgo = findPriceFromDaysAgo(fiveYearData, days: 1) {
+            stock.change1D = calculateChange(from: dayAgo, to: currentPrice)
+        }
+        if let weekAgo = findPriceFromDaysAgo(fiveYearData, days: 7) {
+            stock.change1W = calculateChange(from: weekAgo, to: currentPrice)
+        }
+        if let monthAgo = findPriceFromDaysAgo(fiveYearData, days: 30) {
+            stock.change1M = calculateChange(from: monthAgo, to: currentPrice)
+        }
+        if let threeMonthsAgo = findPriceFromDaysAgo(fiveYearData, days: 90) {
+            stock.change3M = calculateChange(from: threeMonthsAgo, to: currentPrice)
+        }
+        if let yearAgo = findPriceFromDaysAgo(fiveYearData, days: 365) {
+            stock.change1Y = calculateChange(from: yearAgo, to: currentPrice)
+        }
+        if let threeYearsAgo = findPriceFromDaysAgo(fiveYearData, days: 1095) {
+            stock.change3Y = calculateChange(from: threeYearsAgo, to: currentPrice)
+        }
+        if let fiveYearsAgo = findPriceFromDaysAgo(fiveYearData, days: 1825) {
+            stock.change5Y = calculateChange(from: fiveYearsAgo, to: currentPrice)
+        }
+        
+        print("📊 Calculated performance for \(symbol) using cached 5-year data")
     }
     
     private func findPriceFromDaysAgo(_ data: [OHLCV], days: Int) -> Double? {
@@ -702,17 +723,22 @@ struct StockDetailView: View {
     }
     
     /// Enrich stock with additional metrics (technical indicators, estimates)
-    private func enrichStockData(_ stock: Stock) async {
-        guard !historicalData.isEmpty else { return }
+    /// Uses 5-year data to ensure enough data points for all indicators (especially SMA200)
+    private func enrichStockData(_ stock: Stock, using fiveYearData: [OHLCV]) async {
+        // Use 5-year data for technical calculations to ensure we have enough data points
+        let closes = fiveYearData.map { $0.close }
         
-        let closes = historicalData.map { $0.close }
+        guard !closes.isEmpty else {
+            print("⚠️ No price data available for technical calculations")
+            return
+        }
         
         // Calculate RSI (14-period)
         if closes.count >= 14 {
             stock.rsi14 = calculateRSI(closes: closes, period: 14)
         }
         
-        // Calculate Moving Averages
+        // Calculate Moving Averages (using 5-year data ensures we have enough points)
         if closes.count >= 20 {
             stock.sma20 = calculateSMA(closes: closes, period: 20)
         }
@@ -731,8 +757,22 @@ struct StockDetailView: View {
         }
         
         // Estimate fair value using simple DCF-like model (simplified for demo)
-        // In production, this would come from a more sophisticated model or API
         stock.fairValue = estimateFairValue(stock: stock)
+        
+        // Cache technical indicators for reuse
+        let technicals = CachedTechnicals(
+            symbol: symbol,
+            rsi14: stock.rsi14,
+            sma20: stock.sma20,
+            sma50: stock.sma50,
+            sma200: stock.sma200,
+            macd: stock.macd,
+            macdSignal: stock.macdSignal,
+            fetchedAt: Date()
+        )
+        CacheManager.shared.cacheTechnicals(technicals)
+        
+        print("📊 Calculated technical indicators for \(symbol) using \(closes.count) data points")
     }
     
     // MARK: - Technical Indicator Calculations

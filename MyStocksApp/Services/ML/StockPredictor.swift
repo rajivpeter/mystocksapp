@@ -21,18 +21,20 @@ class StockPredictor {
     // MARK: - Model Loading
     
     func loadModel() async {
-        do {
-            // In production, load the actual CoreML model
-            // let modelURL = Bundle.main.url(forResource: "StockPredictionLSTM", withExtension: "mlmodelc")!
-            // model = try MLModel(contentsOf: modelURL)
-            
-            // For now, mark as loaded (model would be trained separately)
-            isModelLoaded = true
-            print("✅ Stock prediction model loaded")
-        } catch {
-            lastError = error.localizedDescription
-            print("❌ Failed to load prediction model: \(error)")
-        }
+        // In production, load the actual CoreML model:
+        // do {
+        //     let modelURL = Bundle.main.url(forResource: "StockPredictionLSTM", withExtension: "mlmodelc")!
+        //     model = try MLModel(contentsOf: modelURL)
+        //     isModelLoaded = true
+        //     print("✅ Stock prediction model loaded")
+        // } catch {
+        //     lastError = error.localizedDescription
+        //     print("❌ Failed to load prediction model: \(error)")
+        // }
+        
+        // For now, mark as loaded (model would be trained separately)
+        isModelLoaded = true
+        print("✅ Stock prediction model ready (using simple algorithm)")
     }
     
     // MARK: - Prediction
@@ -48,13 +50,9 @@ class StockPredictor {
             throw PredictionError.insufficientData
         }
         
-        // Prepare features
-        let features = prepareFeatures(
-            historicalData: historicalData,
-            indicators: technicalIndicators
-        )
-        
-        // In production, run through CoreML model
+        // Prepare features for CoreML model (currently unused but ready for production)
+        // In production, run through CoreML model:
+        // let features = prepareFeatures(historicalData: historicalData, indicators: technicalIndicators)
         // let prediction = try model?.prediction(from: features)
         
         // For now, use a simple prediction algorithm
@@ -175,8 +173,7 @@ class StockPredictor {
         // Cap confidence
         confidence = min(0.85, max(0.2, confidence))
         
-        // Determine signal
-        let expectedReturn1D = ((pred1D * adjustmentFactor) - currentPrice) / currentPrice * 100
+        // Determine signal based on expected returns
         let expectedReturn5D = ((pred5D * adjustmentFactor) - currentPrice) / currentPrice * 100
         
         let signal: PredictionSignal
