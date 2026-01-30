@@ -2,7 +2,7 @@
 //  PortfolioImportView.swift
 //  MyStocksApp
 //
-//  CSV and Screenshot import for bulk portfolio upload
+//  CSV, PDF, and Screenshot import for bulk portfolio upload
 //
 
 import SwiftUI
@@ -10,6 +10,7 @@ import SwiftData
 import UniformTypeIdentifiers
 import PhotosUI
 import Vision
+import PDFKit
 
 struct PortfolioImportView: View {
     @Environment(\.dismiss) private var dismiss
@@ -18,6 +19,7 @@ struct PortfolioImportView: View {
     @State private var importMethod: ImportMethod = .csv
     @State private var importMode: ImportMode = .merge
     @State private var showFilePicker = false
+    @State private var showPDFPicker = false
     @State private var showPhotoPicker = false
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var parsedPositions: [ParsedPosition] = []
@@ -27,11 +29,14 @@ struct PortfolioImportView: View {
     @State private var csvText = ""
     @State private var showClearConfirmation = false
     @State private var aggregateDuplicates = true
+    @State private var rawOCRText: [String] = [] // For debugging OCR
+    @State private var showRawText = false
     
     enum ImportMethod: String, CaseIterable {
-        case csv = "CSV File"
-        case screenshot = "Screenshot"
-        case manual = "Manual Entry"
+        case csv = "CSV"
+        case pdf = "PDF"
+        case screenshot = "Photo"
+        case manual = "Manual"
     }
     
     enum ImportMode: String, CaseIterable {
@@ -105,6 +110,8 @@ struct PortfolioImportView: View {
                     switch importMethod {
                     case .csv:
                         csvImportSection
+                    case .pdf:
+                        pdfImportSection
                     case .screenshot:
                         screenshotImportSection
                     case .manual:
@@ -150,6 +157,13 @@ struct PortfolioImportView: View {
             ) { result in
                 handleFileImport(result)
             }
+            .fileImporter(
+                isPresented: $showPDFPicker,
+                allowedContentTypes: [.pdf],
+                allowsMultipleSelection: false
+            ) { result in
+                handlePDFImport(result)
+            }
             .photosPicker(
                 isPresented: $showPhotoPicker,
                 selection: $selectedPhoto,
@@ -158,6 +172,105 @@ struct PortfolioImportView: View {
             .onChange(of: selectedPhoto) { _, newValue in
                 if let item = newValue {
                     processScreenshot(item)
+                }
+            }
+            .sheet(isPresented: $showRawText) {
+                rawTextDebugSheet
+            }
+        }
+    }
+    
+    // MARK: - PDF Import Section
+    private var pdfImportSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("PDF Statement Import")
+                .font(.headline)
+            
+            Text("Upload a PDF statement from your broker. We'll extract your holdings from the document.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            
+            // Supported Formats
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Supported statement formats:")
+                    .font(.caption.bold())
+                HStack(spacing: 12) {
+                    ForEach(["IG", "ii", "HL", "Freetrade", "Trading 212"], id: \.self) { broker in
+                        Text(broker)
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.brandPrimary.opacity(0.2))
+                            .cornerRadius(6)
+                    }
+                }
+            }
+            
+            // Tips
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Works best with monthly/quarterly statements", systemImage: "checkmark.circle")
+                Label("Holdings/portfolio summary pages are ideal", systemImage: "checkmark.circle")
+                Label("Text-based PDFs work better than scanned images", systemImage: "info.circle")
+            }
+            .font(.caption)
+            .foregroundColor(.secondary)
+            
+            // Upload Button
+            Button {
+                showPDFPicker = true
+            } label: {
+                HStack {
+                    Image(systemName: "doc.text.fill")
+                    Text("Select PDF Statement")
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.brandPrimary)
+                .foregroundColor(.white)
+                .cornerRadius(12)
+            }
+            
+            if isProcessing {
+                HStack {
+                    ProgressView()
+                    Text("Extracting positions from PDF...")
+                        .foregroundColor(.secondary)
+                }
+                .padding()
+            }
+        }
+        .padding()
+        .background(Color.gray.opacity(0.1))
+        .cornerRadius(12)
+    }
+    
+    // MARK: - Raw Text Debug Sheet
+    private var rawTextDebugSheet: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Raw Extracted Text")
+                        .font(.headline)
+                        .padding(.bottom)
+                    
+                    Text("This is what we extracted from your image/PDF. If positions are missing, check if the text contains recognizable stock symbols and numbers.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.bottom)
+                    
+                    ForEach(Array(rawOCRText.enumerated()), id: \.offset) { index, line in
+                        Text("\(index + 1): \(line)")
+                            .font(.system(.caption, design: .monospaced))
+                            .padding(.vertical, 2)
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Extracted Text")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { showRawText = false }
                 }
             }
         }
@@ -243,17 +356,27 @@ struct PortfolioImportView: View {
             Text("Screenshot Import")
                 .font(.headline)
             
-            Text("Take a screenshot of your portfolio from your broker app (IG, Interactive Investor, etc.) and we'll extract the positions using OCR.")
+            Text("Take a screenshot of your portfolio from your broker app. For best results:")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
             
+            // Tips for better OCR
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Ensure stock symbols are clearly visible", systemImage: "textformat")
+                Label("Include the holdings/positions table", systemImage: "tablecells")
+                Label("Crop to just the portfolio section", systemImage: "crop")
+                Label("Use landscape mode for wide tables", systemImage: "rectangle.landscape.rotate")
+            }
+            .font(.caption)
+            .foregroundColor(.secondary)
+            
             // Supported Platforms
             VStack(alignment: .leading, spacing: 8) {
-                Text("Supported platforms:")
+                Text("Tested with:")
                     .font(.caption.bold())
-                HStack(spacing: 16) {
+                HStack(spacing: 12) {
                     PlatformBadge(name: "IG", icon: "chart.line.uptrend.xyaxis")
-                    PlatformBadge(name: "Hargreaves", icon: "building.columns.fill")
+                    PlatformBadge(name: "HL", icon: "building.columns.fill")
                     PlatformBadge(name: "ii", icon: "chart.bar.fill")
                     PlatformBadge(name: "Freetrade", icon: "sparkles")
                 }
@@ -281,6 +404,20 @@ struct PortfolioImportView: View {
                         .foregroundColor(.secondary)
                 }
                 .padding()
+            }
+            
+            // Debug option
+            if !rawOCRText.isEmpty {
+                Button {
+                    showRawText = true
+                } label: {
+                    HStack {
+                        Image(systemName: "doc.text.magnifyingglass")
+                        Text("View Extracted Text")
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
             }
         }
         .padding()
@@ -503,66 +640,211 @@ struct PortfolioImportView: View {
         }
     }
     
-    // MARK: - OCR Text Parser
+    // MARK: - PDF Import Handler
+    private func handlePDFImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            
+            guard url.startAccessingSecurityScopedResource() else {
+                errorMessage = "Permission denied to access PDF"
+                return
+            }
+            
+            defer { url.stopAccessingSecurityScopedResource() }
+            
+            isProcessing = true
+            errorMessage = nil
+            
+            Task {
+                await extractTextFromPDF(url: url)
+            }
+            
+        case .failure(let error):
+            errorMessage = "PDF import failed: \(error.localizedDescription)"
+        }
+    }
+    
+    // MARK: - PDF Text Extraction
+    private func extractTextFromPDF(url: URL) async {
+        guard let pdfDocument = PDFDocument(url: url) else {
+            await MainActor.run {
+                errorMessage = "Could not open PDF document"
+                isProcessing = false
+            }
+            return
+        }
+        
+        var allText: [String] = []
+        
+        // Extract text from all pages
+        for pageIndex in 0..<pdfDocument.pageCount {
+            guard let page = pdfDocument.page(at: pageIndex) else { continue }
+            
+            if let pageText = page.string {
+                let lines = pageText.components(separatedBy: .newlines)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                allText.append(contentsOf: lines)
+            }
+        }
+        
+        await MainActor.run {
+            rawOCRText = allText
+            parseExtractedText(allText, source: "PDF")
+            isProcessing = false
+        }
+    }
+    
+    // MARK: - OCR Text Parser (Enhanced)
     private func parseOCRText(_ lines: [String]) {
+        rawOCRText = lines
+        parseExtractedText(lines, source: "screenshot")
+    }
+    
+    // MARK: - Unified Text Parser (for both OCR and PDF)
+    private func parseExtractedText(_ lines: [String], source: String) {
         parsedPositions.removeAll()
         
-        // Common stock symbol patterns
-        let symbolPattern = try! NSRegularExpression(pattern: "^([A-Z]{1,5}(?:\\.[A-Z]{1,2})?)$", options: [])
-        let numberPattern = try! NSRegularExpression(pattern: "([0-9,]+\\.?[0-9]*)", options: [])
+        // Known stock symbols from common UK/US exchanges
+        let knownSymbols = Set([
+            // UK stocks (FTSE)
+            "BARC", "LLOY", "HSBA", "BP", "SHEL", "VOD", "AZN", "GSK", "ULVR", "RIO",
+            "GLEN", "AAL", "BHP", "RR", "IAG", "AVV", "BA", "BATS", "DGE", "REL",
+            // US stocks
+            "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "TSLA", "META", "NVDA", "JPM", "V",
+            "JNJ", "WMT", "PG", "MA", "HD", "DIS", "NFLX", "PYPL", "INTC", "AMD",
+            "CRM", "ADBE", "CSCO", "PFE", "KO", "PEP", "MRK", "ABT", "TMO", "COST"
+        ])
         
-        var currentSymbol: String?
-        var pendingNumbers: [Double] = []
+        // Patterns for different broker formats
+        // Pattern 1: Symbol followed by numbers on same line (e.g., "AAPL 100 150.50")
+        let inlinePattern = try! NSRegularExpression(
+            pattern: "([A-Z]{1,5}(?:\\.[A-Z]{1,2})?)\\s+([0-9,]+(?:\\.\\d+)?)\\s+(?:[£$])?([0-9,]+(?:\\.\\d+)?)",
+            options: []
+        )
         
+        // Pattern 2: Stock symbol (standalone or with company name)
+        let symbolPattern = try! NSRegularExpression(
+            pattern: "\\b([A-Z]{2,5}(?:\\.[A-Z]{1,2})?)\\b",
+            options: []
+        )
+        
+        // Pattern 3: Numbers (shares, prices, values)
+        let numberPattern = try! NSRegularExpression(
+            pattern: "(?:^|\\s)([£$])?([0-9,]+(?:\\.\\d{1,4})?)(?:\\s|$|[^0-9])",
+            options: []
+        )
+        
+        var foundPositions: [String: (shares: Double, cost: Double, currency: String)] = [:]
+        
+        // First pass: Try inline pattern (most reliable)
         for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            
-            // Check if it's a stock symbol
-            let symbolRange = NSRange(trimmed.startIndex..., in: trimmed)
-            if symbolPattern.firstMatch(in: trimmed, options: [], range: symbolRange) != nil {
-                // Save previous position if we have one
-                if let symbol = currentSymbol, pendingNumbers.count >= 2 {
-                    let position = ParsedPosition(
-                        symbol: symbol,
-                        shares: pendingNumbers[0],
-                        averageCost: pendingNumbers.count > 1 ? pendingNumbers[1] : 0,
-                        currency: symbol.contains(".L") ? "GBP" : "USD"
-                    )
-                    parsedPositions.append(position)
-                }
-                
-                currentSymbol = trimmed
-                pendingNumbers = []
-            } else {
-                // Extract numbers from the line
-                let range = NSRange(trimmed.startIndex..., in: trimmed)
-                let matches = numberPattern.matches(in: trimmed, options: [], range: range)
-                
-                for match in matches {
-                    if let swiftRange = Range(match.range(at: 1), in: trimmed) {
-                        let numberStr = trimmed[swiftRange]
-                            .replacingOccurrences(of: ",", with: "")
-                        if let number = Double(numberStr), number > 0 {
-                            pendingNumbers.append(number)
+            let range = NSRange(line.startIndex..., in: line)
+            if let match = inlinePattern.firstMatch(in: line, options: [], range: range) {
+                if let symbolRange = Range(match.range(at: 1), in: line),
+                   let sharesRange = Range(match.range(at: 2), in: line),
+                   let priceRange = Range(match.range(at: 3), in: line) {
+                    
+                    let symbol = String(line[symbolRange])
+                    let sharesStr = String(line[sharesRange]).replacingOccurrences(of: ",", with: "")
+                    let priceStr = String(line[priceRange]).replacingOccurrences(of: ",", with: "")
+                    
+                    if let shares = Double(sharesStr), let price = Double(priceStr) {
+                        let currency = symbol.contains(".L") || line.contains("£") ? "GBP" : "USD"
+                        
+                        if foundPositions[symbol] != nil {
+                            // Aggregate if already exists
+                            let existing = foundPositions[symbol]!
+                            let totalShares = existing.shares + shares
+                            let totalCost = (existing.shares * existing.cost) + (shares * price)
+                            foundPositions[symbol] = (totalShares, totalCost / totalShares, currency)
+                        } else {
+                            foundPositions[symbol] = (shares, price, currency)
                         }
                     }
                 }
             }
         }
         
-        // Don't forget the last position
-        if let symbol = currentSymbol, pendingNumbers.count >= 1 {
+        // Second pass: Look for known symbols and nearby numbers
+        if foundPositions.isEmpty {
+            var currentSymbol: String?
+            var currentNumbers: [Double] = []
+            var currentCurrency = "USD"
+            
+            for line in lines {
+                let range = NSRange(line.startIndex..., in: line)
+                
+                // Look for known symbols
+                let symbolMatches = symbolPattern.matches(in: line, options: [], range: range)
+                for match in symbolMatches {
+                    if let symbolRange = Range(match.range(at: 1), in: line) {
+                        let potentialSymbol = String(line[symbolRange])
+                        
+                        // Check if it's a known symbol or looks like a valid ticker
+                        if knownSymbols.contains(potentialSymbol) || 
+                           potentialSymbol.count >= 2 && potentialSymbol.count <= 5 &&
+                           !["THE", "AND", "FOR", "PLC", "LTD", "INC", "USD", "GBP", "EUR"].contains(potentialSymbol) {
+                            
+                            // Save previous symbol's data
+                            if let symbol = currentSymbol, !currentNumbers.isEmpty {
+                                let shares = currentNumbers[0]
+                                let cost = currentNumbers.count > 1 ? currentNumbers[1] : 0
+                                foundPositions[symbol] = (shares, cost, currentCurrency)
+                            }
+                            
+                            currentSymbol = potentialSymbol
+                            currentNumbers = []
+                            currentCurrency = potentialSymbol.contains(".L") ? "GBP" : "USD"
+                        }
+                    }
+                }
+                
+                // Look for numbers
+                if currentSymbol != nil {
+                    let numMatches = numberPattern.matches(in: line, options: [], range: range)
+                    for match in numMatches {
+                        if let currencyRange = Range(match.range(at: 1), in: line) {
+                            let curr = String(line[currencyRange])
+                            if curr == "£" { currentCurrency = "GBP" }
+                            else if curr == "$" { currentCurrency = "USD" }
+                        }
+                        
+                        if let numRange = Range(match.range(at: 2), in: line) {
+                            let numStr = String(line[numRange]).replacingOccurrences(of: ",", with: "")
+                            if let num = Double(numStr), num > 0 && num < 10_000_000 {
+                                currentNumbers.append(num)
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Save last symbol
+            if let symbol = currentSymbol, !currentNumbers.isEmpty {
+                let shares = currentNumbers[0]
+                let cost = currentNumbers.count > 1 ? currentNumbers[1] : 0
+                foundPositions[symbol] = (shares, cost, currentCurrency)
+            }
+        }
+        
+        // Convert to ParsedPosition array
+        for (symbol, data) in foundPositions {
             let position = ParsedPosition(
                 symbol: symbol,
-                shares: pendingNumbers[0],
-                averageCost: pendingNumbers.count > 1 ? pendingNumbers[1] : 0,
-                currency: symbol.contains(".L") ? "GBP" : "USD"
+                shares: data.shares,
+                averageCost: data.cost,
+                currency: data.currency
             )
             parsedPositions.append(position)
         }
         
+        // Sort by symbol
+        parsedPositions.sort { $0.symbol < $1.symbol }
+        
         if parsedPositions.isEmpty {
-            errorMessage = "Could not extract positions from screenshot. Try a clearer image or use CSV import."
+            errorMessage = "Could not extract positions from \(source). Tap 'View Extracted Text' to see what was found, or try CSV/PDF import."
         }
     }
     
