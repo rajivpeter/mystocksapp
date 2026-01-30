@@ -56,8 +56,13 @@ workflows:
             --type IOS_DISTRIBUTION \
             --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
             --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
-            --private-key "$APP_STORE_CONNECT_PRIVATE_KEY" \
-            --save || echo "Certificate may already exist"
+            --private-key @env:APP_STORE_CONNECT_PRIVATE_KEY \
+            --save
+          echo "=== Listing certificates after creation ==="
+          app-store-connect certificates list \
+            --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
+            --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
+            --private-key @env:APP_STORE_CONNECT_PRIVATE_KEY
       
       # Fetch signing files using environment variables
       - name: Fetch signing files
@@ -68,7 +73,7 @@ workflows:
             --create \
             --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
             --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
-            --private-key "$APP_STORE_CONNECT_PRIVATE_KEY"
+            --private-key @env:APP_STORE_CONNECT_PRIVATE_KEY
       
       # Add certificates to keychain
       - name: Add certificates to keychain
