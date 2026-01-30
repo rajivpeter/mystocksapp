@@ -57,7 +57,7 @@ In App Store Connect:
 3. Select **App IDs** → **App**
 4. Enter:
    - Description: `MyStocksApp`
-   - Bundle ID: `com.yantra.mystocksapp` (Explicit)
+   - Bundle ID: `com.yantraworks.mystocksapp` (Explicit)
 5. Enable capabilities:
    - Push Notifications
    - Associated Domains (for widgets)
@@ -70,7 +70,7 @@ In App Store Connect:
    - Platform: iOS
    - Name: MyStocksApp
    - Primary Language: English
-   - Bundle ID: `com.yantra.mystocksapp`
+   - Bundle ID: `com.yantraworks.mystocksapp`
    - SKU: `mystocksapp-2026`
 3. Create the app
 

@@ -13,7 +13,7 @@ workflows:
     environment:
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.yantra.mystocksapp
+        bundle_identifier: com.yantraworks.mystocksapp
       vars:
         XCODE_WORKSPACE: "MyStocksApp.xcworkspace"
         XCODE_SCHEME: "MyStocksApp"
@@ -121,7 +121,7 @@ workflows:
     environment:
       ios_signing:
         distribution_type: development
-        bundle_identifier: com.yantra.mystocksapp
+        bundle_identifier: com.yantraworks.mystocksapp
       xcode: 15.2
     
     triggering:
