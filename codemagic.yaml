@@ -42,25 +42,40 @@ workflows:
         script: |
           swift package generate-xcodeproj
       
+      # Debug: List available certificates
+      - name: List certificates
+        script: |
+          echo "=== Listing existing certificates ==="
+          app-store-connect certificates list --type IOS_DISTRIBUTION || echo "No certificates found"
+      
+      # Debug: List existing profiles
+      - name: List profiles
+        script: |
+          echo "=== Listing existing profiles ==="
+          app-store-connect profiles list || echo "No profiles found"
+      
       # Set up keychain for code signing
       - name: Set up keychain
         script: |
           keychain initialize
       
-      # Create iOS Distribution certificate if needed
-      - name: Create certificate
+      # Create iOS Distribution certificate
+      - name: Create distribution certificate
         script: |
+          echo "=== Creating iOS Distribution certificate ==="
           app-store-connect certificates create \
             --type IOS_DISTRIBUTION \
-            --save || echo "Certificate already exists or created"
+            --save \
+            --log-stream || echo "Certificate creation returned (may already exist)"
       
-      # Fetch signing files with explicit bundle ID
+      # Fetch or create signing files
       - name: Fetch signing files
         script: |
+          echo "=== Fetching signing files for $BUNDLE_ID ==="
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
             --create \
-            --verbose
+            --log-stream
       
       # Add certificates to keychain
       - name: Add certificates to keychain
@@ -72,12 +87,11 @@ workflows:
         script: |
           xcode-project use-profiles --project "$XCODE_PROJECT"
       
-      # Increment build number
-      - name: Increment build number
+      # Set build number
+      - name: Set build number
         script: |
           cd $CM_BUILD_DIR
-          LATEST_BUILD_NUMBER=$(app-store-connect get-latest-testflight-build-number "$BUNDLE_ID" || echo "0")
-          agvtool new-version -all $((LATEST_BUILD_NUMBER + 1))
+          agvtool new-version -all 1
       
       # Build the app
       - name: Build iOS app
