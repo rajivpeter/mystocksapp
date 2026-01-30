@@ -241,7 +241,7 @@ struct StockDetailView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     ForEach(detectedPatterns) { pattern in
-                        PatternCard(pattern: pattern)
+                        DetectedPatternCard(pattern: pattern)
                             .onTapGesture {
                                 selectedPattern = pattern
                                 showPatternEducation = true
@@ -684,7 +684,7 @@ struct StockDetailView: View {
 
 // MARK: - Supporting Components
 
-struct PatternCard: View {
+struct DetectedPatternCard: View {
     let pattern: PatternAnnotation
     
     var body: some View {
