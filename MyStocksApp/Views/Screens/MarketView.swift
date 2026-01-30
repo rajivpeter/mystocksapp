@@ -119,6 +119,7 @@ struct MarketView: View {
                     change: "+2.34%",
                     isPositive: true
                 )
+                .onTapGesture { selectedStock = "AAPL" }
                 
                 WatchlistRow(
                     symbol: "MSFT",
@@ -127,6 +128,7 @@ struct MarketView: View {
                     change: "+1.12%",
                     isPositive: true
                 )
+                .onTapGesture { selectedStock = "MSFT" }
                 
                 WatchlistRow(
                     symbol: "BARC.L",
@@ -135,6 +137,7 @@ struct MarketView: View {
                     change: "-3.21%",
                     isPositive: false
                 )
+                .onTapGesture { selectedStock = "BARC.L" }
             }
         }
     }
@@ -163,6 +166,7 @@ struct MarketView: View {
                     change: "+8.45%",
                     volume: "45.2M"
                 )
+                .onTapGesture { selectedStock = "NVDA" }
                 
                 MoverRow(
                     symbol: "TSLA",
@@ -171,6 +175,7 @@ struct MarketView: View {
                     change: "+5.67%",
                     volume: "89.1M"
                 )
+                .onTapGesture { selectedStock = "TSLA" }
             }
         }
     }

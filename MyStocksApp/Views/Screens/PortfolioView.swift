@@ -16,7 +16,9 @@ struct PortfolioView: View {
     @State private var viewModel = PortfolioViewModel()
     @State private var selectedTimeframe: HistoricalPeriod = .oneMonth
     @State private var showingAddPosition = false
+    @State private var showingImport = false
     @State private var selectedPosition: Position?
+    @State private var selectedStockSymbol: String?
     
     var body: some View {
         NavigationStack {
@@ -43,8 +45,15 @@ struct PortfolioView: View {
             .navigationTitle("Portfolio")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showingAddPosition = true }) {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Menu {
+                        Button(action: { showingAddPosition = true }) {
+                            Label("Add Single", systemImage: "plus")
+                        }
+                        Button(action: { showingImport = true }) {
+                            Label("Bulk Import", systemImage: "square.and.arrow.down")
+                        }
+                    } label: {
                         Image(systemName: "plus.circle.fill")
                             .foregroundColor(.brandPrimary)
                     }
@@ -70,6 +79,12 @@ struct PortfolioView: View {
             }
             .sheet(item: $selectedPosition) { position in
                 PositionDetailSheet(position: position, viewModel: viewModel)
+            }
+            .sheet(isPresented: $showingImport) {
+                PortfolioImportView()
+            }
+            .navigationDestination(item: $selectedStockSymbol) { symbol in
+                StockDetailView(symbol: symbol)
             }
         }
     }
@@ -283,7 +298,26 @@ struct PortfolioView: View {
                     ForEach(viewModel.positions.sorted { $0.marketValueGBP > $1.marketValueGBP }) { position in
                         PositionCard(position: position)
                             .onTapGesture {
-                                selectedPosition = position
+                                selectedStockSymbol = position.symbol
+                            }
+                            .contextMenu {
+                                Button {
+                                    selectedStockSymbol = position.symbol
+                                } label: {
+                                    Label("View Details", systemImage: "chart.line.uptrend.xyaxis")
+                                }
+                                
+                                Button {
+                                    selectedPosition = position
+                                } label: {
+                                    Label("Edit Position", systemImage: "pencil")
+                                }
+                                
+                                Button(role: .destructive) {
+                                    // Delete position
+                                } label: {
+                                    Label("Remove", systemImage: "trash")
+                                }
                             }
                     }
                 }
