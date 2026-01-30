@@ -601,12 +601,13 @@ struct PortfolioImportView: View {
                 currency: Currency(rawValue: parsed.currency) ?? .usd
             )
             
-            // Create Position
+            // Create Position (symbol is required first parameter)
             let position = Position(
-                stock: stock,
+                symbol: parsed.symbol,
                 shares: parsed.shares,
                 averageCost: parsed.averageCost,
-                purchaseDate: Date()
+                purchaseDate: Date(),
+                stock: stock
             )
             
             modelContext.insert(stock)
