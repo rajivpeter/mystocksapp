@@ -798,412 +798,174 @@ struct PortfolioImportView: View {
     // MARK: - Unified Text Parser (for both OCR and PDF)
     private func parseExtractedText(_ lines: [String], source: String) {
         parsedPositions.removeAll()
+        uncertainMappings.removeAll()
         
-        let fullText = lines.joined(separator: " ").lowercased()
+        print("📄 Parsing \(source): \(lines.count) lines")
         
-        // Detect document type
-        let isIGStatement = fullText.contains("ig.com") || fullText.contains("share dealing") || 
-                            fullText.contains("holdings gbp") || fullText.contains("holdings usd")
+        // IG PDF format detection
+        let fullText = lines.joined(separator: "\n")
+        let isIGFormat = fullText.lowercased().contains("holdings") || fullText.contains("IG")
         
-        print("📄 Parsing \(source): isIG=\(isIGStatement), lines=\(lines.count)")
-        
-        // Company name to ticker symbol mapping
+        // Company name to ticker symbol mapping (comprehensive)
         let companyToSymbol: [String: (symbol: String, currency: String)] = [
             // UK Companies (GBP)
-            "barclays": ("BARC", "GBP"),
-            "diageo": ("DGE", "GBP"),
-            "hsbc": ("HSBA", "GBP"),
-            "lloyds": ("LLOY", "GBP"),
-            "vodafone": ("VOD", "GBP"),
-            "astrazeneca": ("AZN", "GBP"),
-            "glaxosmithkline": ("GSK", "GBP"),
-            "gsk": ("GSK", "GBP"),
-            "unilever": ("ULVR", "GBP"),
-            "rio tinto": ("RIO", "GBP"),
-            "glencore": ("GLEN", "GBP"),
-            "anglo american": ("AAL", "GBP"),
-            "bhp": ("BHP", "GBP"),
-            "rolls-royce": ("RR", "GBP"),
-            "rolls royce": ("RR", "GBP"),
-            "iag": ("IAG", "GBP"),
-            "british airways": ("IAG", "GBP"),
-            "aviva": ("AV", "GBP"),
-            "bat": ("BATS", "GBP"),
-            "british american tobacco": ("BATS", "GBP"),
-            "reckitt": ("RKT", "GBP"),
-            "legal & general": ("LGEN", "GBP"),
-            "legal and general": ("LGEN", "GBP"),
-            "prudential": ("PRU", "GBP"),
-            "bp": ("BP", "GBP"),
-            "shell": ("SHEL", "GBP"),
-            "national grid": ("NG", "GBP"),
-            "sse": ("SSE", "GBP"),
-            "tesco": ("TSCO", "GBP"),
-            "sainsbury": ("SBRY", "GBP"),
-            "itv": ("ITV", "GBP"),
-            "pearson": ("PSON", "GBP"),
-            "wpp": ("WPP", "GBP"),
-            "standard chartered": ("STAN", "GBP"),
-            "natwest": ("NWG", "GBP"),
-            
+            "barclays": ("BARC", "GBP"), "diageo": ("DGE", "GBP"), "hsbc": ("HSBA", "GBP"),
+            "lloyds": ("LLOY", "GBP"), "vodafone": ("VOD", "GBP"), "astrazeneca": ("AZN", "GBP"),
+            "glaxosmithkline": ("GSK", "GBP"), "gsk": ("GSK", "GBP"), "unilever": ("ULVR", "GBP"),
+            "rio tinto": ("RIO", "GBP"), "glencore": ("GLEN", "GBP"), "anglo american": ("AAL", "GBP"),
+            "bhp": ("BHP", "GBP"), "rolls-royce": ("RR", "GBP"), "rolls royce": ("RR", "GBP"),
+            "british airways": ("IAG", "GBP"), "aviva": ("AV", "GBP"), "british american tobacco": ("BATS", "GBP"),
+            "reckitt": ("RKT", "GBP"), "legal & general": ("LGEN", "GBP"), "prudential": ("PRU", "GBP"),
+            "bp": ("BP", "GBP"), "shell": ("SHEL", "GBP"), "national grid": ("NG", "GBP"),
+            "sse": ("SSE", "GBP"), "tesco": ("TSCO", "GBP"), "sainsbury": ("SBRY", "GBP"),
+            "itv": ("ITV", "GBP"), "standard chartered": ("STAN", "GBP"), "natwest": ("NWG", "GBP"),
             // US Companies (USD)
-            "apple": ("AAPL", "USD"),
-            "microsoft": ("MSFT", "USD"),
-            "alphabet": ("GOOGL", "USD"),
-            "google": ("GOOGL", "USD"),
-            "amazon": ("AMZN", "USD"),
-            "tesla": ("TSLA", "USD"),
-            "tesla motors": ("TSLA", "USD"),
-            "meta": ("META", "USD"),
-            "facebook": ("META", "USD"),
-            "nvidia": ("NVDA", "USD"),
-            "jpmorgan": ("JPM", "USD"),
-            "jp morgan": ("JPM", "USD"),
-            "visa": ("V", "USD"),
-            "johnson & johnson": ("JNJ", "USD"),
-            "johnson and johnson": ("JNJ", "USD"),
-            "walmart": ("WMT", "USD"),
-            "procter & gamble": ("PG", "USD"),
-            "procter and gamble": ("PG", "USD"),
-            "mastercard": ("MA", "USD"),
-            "home depot": ("HD", "USD"),
-            "disney": ("DIS", "USD"),
-            "walt disney": ("DIS", "USD"),
-            "netflix": ("NFLX", "USD"),
-            "paypal": ("PYPL", "USD"),
-            "intel": ("INTC", "USD"),
-            "amd": ("AMD", "USD"),
-            "advanced micro devices": ("AMD", "USD"),
-            "salesforce": ("CRM", "USD"),
-            "adobe": ("ADBE", "USD"),
-            "adobe systems": ("ADBE", "USD"),
-            "cisco": ("CSCO", "USD"),
-            "pfizer": ("PFE", "USD"),
-            "coca-cola": ("KO", "USD"),
-            "coca cola": ("KO", "USD"),
-            "pepsi": ("PEP", "USD"),
-            "pepsico": ("PEP", "USD"),
-            "merck": ("MRK", "USD"),
-            "merck & co": ("MRK", "USD"),
-            "abbott": ("ABT", "USD"),
-            "thermo fisher": ("TMO", "USD"),
-            "costco": ("COST", "USD"),
-            "oracle": ("ORCL", "USD"),
-            "accenture": ("ACN", "USD"),
-            "broadcom": ("AVGO", "USD"),
-            "texas instruments": ("TXN", "USD"),
-            "qualcomm": ("QCOM", "USD"),
-            "unitedhealth": ("UNH", "USD"),
-            "united health": ("UNH", "USD"),
-            "unitedhealth group": ("UNH", "USD"),
-            "chevron": ("CVX", "USD"),
-            "exxon": ("XOM", "USD"),
-            "exxonmobil": ("XOM", "USD"),
-            "bank of america": ("BAC", "USD"),
-            "wells fargo": ("WFC", "USD"),
-            "comcast": ("CMCSA", "USD"),
-            "comcast corp": ("CMCSA", "USD"),
-            "verizon": ("VZ", "USD"),
-            "verizon media": ("VZ", "USD"),
-            "verizon communications": ("VZ", "USD"),
-            "at&t": ("T", "USD"),
-            // More US stocks from IG
-            "berkshire": ("BRK.B", "USD"),
-            "berkshire hathaway": ("BRK.B", "USD"),
-            "johnson controls": ("JCI", "USD"),
-            "lockheed": ("LMT", "USD"),
-            "lockheed martin": ("LMT", "USD"),
-            "boeing": ("BA", "USD"),
-            "caterpillar": ("CAT", "USD"),
-            "3m": ("MMM", "USD"),
-            "honeywell": ("HON", "USD"),
-            "general electric": ("GE", "USD"),
-            "ford": ("F", "USD"),
-            "general motors": ("GM", "USD"),
-            "uber": ("UBER", "USD"),
-            "airbnb": ("ABNB", "USD"),
-            "spotify": ("SPOT", "USD"),
-            "shopify": ("SHOP", "USD"),
-            "palantir": ("PLTR", "USD"),
-            "snowflake": ("SNOW", "USD"),
-            "crowdstrike": ("CRWD", "USD"),
-            "datadog": ("DDOG", "USD"),
-            "servicenow": ("NOW", "USD"),
-            "workday": ("WDAY", "USD"),
-            "zoom": ("ZM", "USD"),
-            "docusign": ("DOCU", "USD"),
-            "square": ("SQ", "USD"),
-            "block": ("SQ", "USD"),
-            "coinbase": ("COIN", "USD"),
-            "robinhood": ("HOOD", "USD"),
-            "rivian": ("RIVN", "USD"),
-            "lucid": ("LCID", "USD"),
-            "nio": ("NIO", "USD"),
-            "xpeng": ("XPEV", "USD"),
-            "li auto": ("LI", "USD"),
+            "apple": ("AAPL", "USD"), "microsoft": ("MSFT", "USD"), "alphabet": ("GOOGL", "USD"),
+            "google": ("GOOGL", "USD"), "amazon": ("AMZN", "USD"), "tesla": ("TSLA", "USD"),
+            "meta": ("META", "USD"), "nvidia": ("NVDA", "USD"), "jpmorgan": ("JPM", "USD"),
+            "visa": ("V", "USD"), "walmart": ("WMT", "USD"), "mastercard": ("MA", "USD"),
+            "disney": ("DIS", "USD"), "netflix": ("NFLX", "USD"), "paypal": ("PYPL", "USD"),
+            "intel": ("INTC", "USD"), "amd": ("AMD", "USD"), "salesforce": ("CRM", "USD"),
+            "adobe": ("ADBE", "USD"), "cisco": ("CSCO", "USD"), "pfizer": ("PFE", "USD"),
+            "merck": ("MRK", "USD"), "costco": ("COST", "USD"), "unitedhealth": ("UNH", "USD"),
+            "comcast": ("CMCSA", "USD"), "verizon": ("VZ", "USD"), "at&t": ("T", "USD"),
+            "boeing": ("BA", "USD"), "caterpillar": ("CAT", "USD"), "honeywell": ("HON", "USD"),
+            "ford": ("F", "USD"), "uber": ("UBER", "USD"), "airbnb": ("ABNB", "USD"),
         ]
         
-        // Words that should NEVER be treated as stock symbols
-        let excludeWords = Set([
-            "the", "and", "for", "plc", "ltd", "inc", "usd", "gbp", "eur", "buy", "sell",
-            "open", "close", "high", "low", "total", "net", "fee", "tax", "cash", "div",
-            "dividend", "value", "price", "cost", "profit", "loss", "share", "shares",
-            "stock", "epic", "name", "qty", "avg", "mkt", "page", "date", "ref", "corp",
-            "lse", "nyse", "nasdaq", "ftse", "holdings", "balance", "brought", "forward",
-            "isa", "sipp", "account", "activity", "details", "type", "order", "venue",
-            "isin", "transaction", "quantity", "dealing", "charges", "conv", "rate",
-            "credit", "debit", "current", "gain", "hours"
-        ])
-        
         var foundPositions: [String: (shares: Double, avgCost: Double, currency: String)] = [:]
-        var currentSection = "GBP" // Track which section we're in
+        var currentCurrency = "GBP"
+        var processedSymbols = Set<String>()
         
-        // Process each line
-        for (index, line) in lines.enumerated() {
+        // APPROACH 1: Look for lines with tab/space-separated data (table rows)
+        // IG PDFs typically have: Company Name | Quantity | Cost | Price | Value | P/L | %
+        for line in lines {
             let lineLower = line.lowercased()
             
-            // Track section headers to determine currency
-            if lineLower.contains("holdings gbp") || lineLower.contains("gbp holdings") {
-                currentSection = "GBP"
-                print("📍 Entering GBP section")
+            // Track currency section
+            if lineLower.contains("holdings gbp") || lineLower.contains("gbp") && lineLower.contains("holdings") {
+                currentCurrency = "GBP"
                 continue
             }
-            if lineLower.contains("holdings usd") || lineLower.contains("usd holdings") {
-                currentSection = "USD"
-                print("📍 Entering USD section")
+            if lineLower.contains("holdings usd") || lineLower.contains("usd") && lineLower.contains("holdings") {
+                currentCurrency = "USD"
                 continue
             }
             
-            // Skip header lines and totals
+            // Skip headers/totals
             if lineLower.contains("details") && lineLower.contains("quantity") { continue }
-            if lineLower.starts(with: "total") { continue }
-            if lineLower.contains("balance") && lineLower.contains("brought") { continue }
+            if lineLower.hasPrefix("total") { continue }
             
-            // Try to match company names
+            // Extract numbers from THIS LINE ONLY
+            let numbersOnLine = extractNumbersStrict(from: line)
+            
+            // Try to match company name
             for (companyName, info) in companyToSymbol {
-                if lineLower.contains(companyName) {
-                    // Found a company! Now extract numbers from this line and nearby lines
-                    var numbersFound: [Double] = []
-                    
-                    // Look at current line and next 2 lines for numbers
-                    for j in index..<min(index + 3, lines.count) {
-                        let searchLine = lines[j]
-                        // Extract all numbers from the line
-                        let numbers = extractNumbers(from: searchLine)
-                        numbersFound.append(contentsOf: numbers)
-                    }
-                    
-                    print("🔍 Found '\(companyName)' -> \(info.symbol), numbers: \(numbersFound)")
-                    
-                    // IG format: Quantity | Cost (total) | Current Price | Value | Gain/Loss | Gain %
-                    // We need: shares (first number), and can calculate avgCost from cost/shares
-                    if numbersFound.count >= 2 {
-                        let shares = numbersFound[0]
-                        // Use second number as total cost, third as current price if available
-                        let totalCost = numbersFound.count > 1 ? numbersFound[1] : 0
-                        let avgCost = shares > 0 ? totalCost / shares : (numbersFound.count > 2 ? numbersFound[2] : 0)
+                if lineLower.contains(companyName) && !processedSymbols.contains(info.symbol) {
+                    if numbersOnLine.count >= 2 {
+                        // First number should be quantity (shares)
+                        // Find the first "reasonable" share count (< 100,000 for most retail investors)
+                        let shares = numbersOnLine[0]
+                        let totalCost = numbersOnLine[1]
                         
-                        // Determine currency - use section or document context
-                        let currency = currentSection == "USD" ? "USD" : info.currency
-                        
-                        // Aggregate if symbol already exists
-                        if let existing = foundPositions[info.symbol] {
-                            let totalShares = existing.shares + shares
-                            let combinedCost = (existing.shares * existing.avgCost) + (shares * avgCost)
-                            let newAvgCost = totalShares > 0 ? combinedCost / totalShares : 0
-                            foundPositions[info.symbol] = (totalShares, newAvgCost, currency)
-                            print("✅ Updated: \(info.symbol) - now \(totalShares) shares @ \(currency)\(newAvgCost)")
-                        } else {
-                            foundPositions[info.symbol] = (shares, avgCost, currency)
-                            print("✅ Added: \(info.symbol) - \(shares) shares @ \(currency)\(avgCost)")
+                        // Sanity check - shares should be reasonable
+                        if shares > 0 && shares < 100000 {
+                            let avgCost = shares > 0 ? totalCost / shares : 0
+                            let currency = currentCurrency
+                            
+                            // Additional sanity: avgCost should be > 0 and < 100000
+                            if avgCost > 0 && avgCost < 100000 {
+                                foundPositions[info.symbol] = (shares, avgCost, currency)
+                                processedSymbols.insert(info.symbol)
+                                print("✅ Found: \(info.symbol) - \(shares) shares @ \(currency)\(String(format: "%.2f", avgCost))")
+                            }
                         }
                     }
-                    break // Found match, move to next line
+                    break
                 }
             }
         }
         
-        // If company name matching found nothing, try direct symbol matching
+        // APPROACH 2: If approach 1 found nothing, try joining lines and looking for patterns
         if foundPositions.isEmpty {
-            print("📄 Company name matching failed, trying symbol matching...")
-            parseBySymbols(lines: lines, into: &foundPositions, excludeWords: excludeWords)
+            print("📄 Line-by-line parsing found nothing, trying pattern matching...")
+            
+            // Join all text and look for: CompanyName followed by numbers
+            let joinedText = lines.joined(separator: " ")
+            
+            for (companyName, info) in companyToSymbol {
+                if joinedText.lowercased().contains(companyName) {
+                    // Find position of company name
+                    if let range = joinedText.lowercased().range(of: companyName) {
+                        let afterCompany = String(joinedText[range.upperBound...])
+                        let numbers = extractNumbersStrict(from: String(afterCompany.prefix(100)))
+                        
+                        if numbers.count >= 2 {
+                            let shares = numbers[0]
+                            let totalCost = numbers[1]
+                            
+                            // Strict sanity checks
+                            if shares > 0 && shares < 50000 && totalCost > 0 && totalCost < 10000000 {
+                                let avgCost = totalCost / shares
+                                if avgCost > 0.01 && avgCost < 50000 {
+                                    foundPositions[info.symbol] = (shares, avgCost, "GBP")
+                                    print("✅ Pattern match: \(info.symbol) - \(shares) shares @ \(String(format: "%.2f", avgCost))")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         
-        // Also look for unmatched lines that might contain company names
-        // These will be flagged for user confirmation
-        uncertainMappings.removeAll()
-        findUnmatchedCompanies(lines: lines, matched: foundPositions, excludeWords: excludeWords, currentSection: currentSection)
+        // Convert to ParsedPosition array with validation
+        var validPositions: [ParsedPosition] = []
+        var invalidCount = 0
         
-        // Convert to ParsedPosition array
         for (symbol, data) in foundPositions {
-            let position = ParsedPosition(
-                symbol: symbol,
-                shares: data.shares,
-                averageCost: data.avgCost,
-                currency: data.currency,
-                originalName: nil,
-                isConfirmed: true
-            )
-            parsedPositions.append(position)
+            // Final sanity check
+            let isValid = data.shares > 0 && data.shares < 100000 && data.avgCost > 0 && data.avgCost < 100000
+            
+            if isValid {
+                let position = ParsedPosition(
+                    symbol: symbol,
+                    shares: data.shares,
+                    averageCost: data.avgCost,
+                    currency: data.currency,
+                    originalName: nil,
+                    isConfirmed: true
+                )
+                validPositions.append(position)
+            } else {
+                invalidCount += 1
+                print("⚠️ Skipping invalid: \(symbol) - \(data.shares) shares @ \(data.avgCost)")
+            }
         }
+        
+        parsedPositions = validPositions
         
         // Sort by estimated value descending
         parsedPositions.sort { $0.estimatedValue > $1.estimatedValue }
         
-        print("📊 Total positions found: \(parsedPositions.count)")
-        print("❓ Uncertain mappings: \(uncertainMappings.count)")
+        print("📊 Valid positions: \(parsedPositions.count), Invalid skipped: \(invalidCount)")
         
-        if parsedPositions.isEmpty && uncertainMappings.isEmpty {
-            errorMessage = "Could not extract positions from \(source). Tap 'View Extracted Text' to see the raw data, then try CSV import with the format: Symbol, Shares, AvgCost, Currency"
-        }
-        
-        // Show confirmation sheet if there are uncertain mappings
-        if !uncertainMappings.isEmpty {
-            currentMappingIndex = 0
-            editingSymbol = uncertainMappings.first?.suggestedSymbol ?? ""
-            showMappingConfirmation = true
+        // Show appropriate message based on results
+        if parsedPositions.isEmpty {
+            errorMessage = """
+            PDF parsing couldn't extract valid positions.
+            
+            Recommended: Use CSV import instead.
+            Format: Symbol, Shares, AvgCost, Currency
+            Example: AAPL, 43, 197.11, USD
+            
+            Tap 'Paste CSV Data' to manually enter your positions.
+            """
+        } else if invalidCount > 0 {
+            errorMessage = "Found \(parsedPositions.count) valid positions. \(invalidCount) entries were skipped due to invalid data."
         }
     }
     
-    // MARK: - Find Unmatched Companies
-    private func findUnmatchedCompanies(lines: [String], matched: [String: (shares: Double, avgCost: Double, currency: String)], excludeWords: Set<String>, currentSection: String) {
-        // Pattern to detect potential company name lines (contains words like Inc, PLC, Corp, Ltd, etc.)
-        let companyIndicators = ["inc", "plc", "corp", "ltd", "limited", "group", "holdings", "systems", "technologies"]
-        
-        // Matched company patterns to skip
-        let matchedPatterns = Set(["barclays", "diageo", "hsbc", "lloyds", "vodafone", "apple", "microsoft", 
-                                    "google", "alphabet", "amazon", "tesla", "meta", "nvidia", "adobe",
-                                    "salesforce", "merck", "comcast", "verizon", "unitedhealth"])
-        
-        var processedLines = Set<Int>() // Track which lines we've already processed
-        var currentCurrency = "GBP"
-        
-        for (index, line) in lines.enumerated() {
-            let lineLower = line.lowercased()
-            
-            // Track section for currency
-            if lineLower.contains("holdings gbp") { currentCurrency = "GBP"; continue }
-            if lineLower.contains("holdings usd") { currentCurrency = "USD"; continue }
-            
-            // Skip if already processed or if it's a header/total line
-            if processedLines.contains(index) { continue }
-            if lineLower.contains("details") && lineLower.contains("quantity") { continue }
-            if lineLower.starts(with: "total") { continue }
-            
-            // Check if this looks like a company name line
-            let hasCompanyIndicator = companyIndicators.contains { lineLower.contains($0) }
-            let hasNumbers = extractNumbers(from: line).count >= 2
-            
-            // Skip if it matches a known pattern we already handled
-            let alreadyMatched = matchedPatterns.contains { lineLower.contains($0) }
-            if alreadyMatched { continue }
-            
-            if hasCompanyIndicator && hasNumbers {
-                processedLines.insert(index)
-                
-                // Extract numbers from this line
-                var numbersFound: [Double] = []
-                for j in index..<min(index + 3, lines.count) {
-                    numbersFound.append(contentsOf: extractNumbers(from: lines[j]))
-                }
-                
-                if numbersFound.count >= 2 {
-                    let shares = numbersFound[0]
-                    let totalCost = numbersFound[1]
-                    
-                    // Try to guess a symbol from the line
-                    let suggestedSymbol = guessSymbol(from: line)
-                    
-                    // Clean up the company name for display
-                    let cleanedName = cleanCompanyName(line)
-                    
-                    print("❓ Uncertain: '\(cleanedName)' -> \(suggestedSymbol), \(shares) shares")
-                    
-                    let mapping = UncertainMapping(
-                        originalName: cleanedName,
-                        suggestedSymbol: suggestedSymbol,
-                        shares: shares,
-                        totalCost: totalCost,
-                        currency: currentCurrency
-                    )
-                    uncertainMappings.append(mapping)
-                }
-            }
-        }
-    }
-    
-    // MARK: - Guess Symbol from Company Name
-    private func guessSymbol(from line: String) -> String {
-        let lineLower = line.lowercased()
-        
-        // Common mappings that might be in different formats
-        let quickMappings: [String: String] = [
-            "alphabet": "GOOGL",
-            "class a": "GOOGL", // Often used with Alphabet
-            "comcast": "CMCSA",
-            "verizon": "VZ",
-            "unitedhealth": "UNH",
-            "united health": "UNH",
-            "adobe": "ADBE",
-            "salesforce": "CRM",
-            "microsoft": "MSFT",
-            "apple": "AAPL",
-            "amazon": "AMZN",
-            "tesla": "TSLA",
-            "nvidia": "NVDA",
-            "merck": "MRK",
-        ]
-        
-        for (keyword, symbol) in quickMappings {
-            if lineLower.contains(keyword) {
-                return symbol
-            }
-        }
-        
-        // Try to extract uppercase letters as a potential symbol
-        let words = line.components(separatedBy: .whitespaces)
-        for word in words {
-            let cleaned = word.uppercased().filter { $0.isLetter }
-            if cleaned.count >= 2 && cleaned.count <= 5 && cleaned == cleaned.uppercased() {
-                let excluded = ["THE", "AND", "FOR", "PLC", "LTD", "INC", "USD", "GBP", "EUR", "CORP", "CLASS"]
-                if !excluded.contains(cleaned) {
-                    return cleaned
-                }
-            }
-        }
-        
-        return "????"
-    }
-    
-    // MARK: - Clean Company Name
-    private func cleanCompanyName(_ line: String) -> String {
-        // Remove numbers and special characters, keep company name
-        var cleaned = line
-        
-        // Remove common suffixes and numbers
-        let removePatterns = ["(24 hours)", "(24hours)", "24 hours", "24hours"]
-        for pattern in removePatterns {
-            cleaned = cleaned.replacingOccurrences(of: pattern, with: "", options: .caseInsensitive)
-        }
-        
-        // Remove standalone numbers (keep text)
-        let words = cleaned.components(separatedBy: .whitespaces)
-        let textWords = words.filter { word in
-            let isNumber = Double(word.replacingOccurrences(of: ",", with: "")) != nil
-            return !isNumber
-        }
-        
-        cleaned = textWords.joined(separator: " ").trimmingCharacters(in: .whitespaces)
-        
-        // Limit length
-        if cleaned.count > 50 {
-            cleaned = String(cleaned.prefix(50)) + "..."
-        }
-        
-        return cleaned.isEmpty ? line : cleaned
-    }
-    
-    // MARK: - Helper: Extract Numbers from Text
+    // MARK: - Helper: Extract Numbers from Text (Original)
     private func extractNumbers(from text: String) -> [Double] {
         var numbers: [Double] = []
         
@@ -1228,52 +990,32 @@ struct PortfolioImportView: View {
         return numbers
     }
     
-    // MARK: - Fallback: Parse by Symbol
-    private func parseBySymbols(lines: [String], into foundPositions: inout [String: (shares: Double, avgCost: Double, currency: String)], excludeWords: Set<String>) {
+    // MARK: - Strict Number Extraction (for better accuracy)
+    private func extractNumbersStrict(from text: String) -> [Double] {
+        var numbers: [Double] = []
         
-        let validSymbols = Set([
-            // UK
-            "BARC", "LLOY", "HSBA", "BP", "SHEL", "VOD", "AZN", "GSK", "ULVR", "RIO",
-            "GLEN", "AAL", "BHP", "RR", "IAG", "BATS", "DGE", "LGEN", "PRU", "TSCO",
-            // US
-            "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "NVDA", "JPM", "V",
-            "JNJ", "WMT", "PG", "MA", "HD", "DIS", "NFLX", "PYPL", "INTC", "AMD",
-            "CRM", "ADBE", "CSCO", "PFE", "KO", "PEP", "MRK", "UNH", "CMCSA", "VZ"
-        ])
+        // Split by common delimiters
+        let components = text.components(separatedBy: CharacterSet(charactersIn: " \t|"))
         
-        let ukSymbols = Set(["BARC", "LLOY", "HSBA", "BP", "SHEL", "VOD", "AZN", "GSK", "ULVR", "RIO", "GLEN", "AAL", "BHP", "RR", "IAG", "BATS", "DGE", "LGEN", "PRU", "TSCO"])
-        
-        let symbolPattern = try! NSRegularExpression(pattern: "\\b([A-Z]{2,5})\\b", options: [])
-        
-        for (index, line) in lines.enumerated() {
-            let range = NSRange(line.startIndex..., in: line)
-            let matches = symbolPattern.matches(in: line, options: [], range: range)
+        for component in components {
+            let cleaned = component
+                .trimmingCharacters(in: .whitespaces)
+                .replacingOccurrences(of: ",", with: "")
+                .replacingOccurrences(of: "£", with: "")
+                .replacingOccurrences(of: "$", with: "")
+                .replacingOccurrences(of: "%", with: "")
             
-            for match in matches {
-                guard let symbolRange = Range(match.range(at: 1), in: line) else { continue }
-                let symbol = String(line[symbolRange])
-                
-                // Skip if excluded or not a known valid symbol
-                if excludeWords.contains(symbol.lowercased()) { continue }
-                if !validSymbols.contains(symbol) { continue }
-                
-                // Get numbers from this and next lines
-                var numbers: [Double] = []
-                for j in index..<min(index + 3, lines.count) {
-                    numbers.append(contentsOf: extractNumbers(from: lines[j]))
-                }
-                
-                if numbers.count >= 2 {
-                    let shares = numbers[0]
-                    let totalCost = numbers[1]
-                    let avgCost = shares > 0 ? totalCost / shares : 0
-                    let currency = ukSymbols.contains(symbol) ? "GBP" : "USD"
-                    
-                    foundPositions[symbol] = (shares, avgCost, currency)
-                    print("✅ Symbol match: \(symbol) - \(shares) shares @ \(currency)\(avgCost)")
-                }
+            // Skip if it contains letters (except for decimal point)
+            let hasLetters = cleaned.contains { $0.isLetter }
+            if hasLetters { continue }
+            
+            // Try to parse as number
+            if let num = Double(cleaned), num > 0 {
+                numbers.append(num)
             }
         }
+        
+        return numbers
     }
     
     // MARK: - Import Positions
