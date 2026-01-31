@@ -726,14 +726,52 @@ struct PortfolioImportView: View {
             "qualcomm": ("QCOM", "USD"),
             "unitedhealth": ("UNH", "USD"),
             "united health": ("UNH", "USD"),
+            "unitedhealth group": ("UNH", "USD"),
             "chevron": ("CVX", "USD"),
             "exxon": ("XOM", "USD"),
             "exxonmobil": ("XOM", "USD"),
             "bank of america": ("BAC", "USD"),
             "wells fargo": ("WFC", "USD"),
             "comcast": ("CMCSA", "USD"),
+            "comcast corp": ("CMCSA", "USD"),
             "verizon": ("VZ", "USD"),
+            "verizon media": ("VZ", "USD"),
+            "verizon communications": ("VZ", "USD"),
             "at&t": ("T", "USD"),
+            // More US stocks from IG
+            "berkshire": ("BRK.B", "USD"),
+            "berkshire hathaway": ("BRK.B", "USD"),
+            "johnson controls": ("JCI", "USD"),
+            "lockheed": ("LMT", "USD"),
+            "lockheed martin": ("LMT", "USD"),
+            "boeing": ("BA", "USD"),
+            "caterpillar": ("CAT", "USD"),
+            "3m": ("MMM", "USD"),
+            "honeywell": ("HON", "USD"),
+            "general electric": ("GE", "USD"),
+            "ford": ("F", "USD"),
+            "general motors": ("GM", "USD"),
+            "uber": ("UBER", "USD"),
+            "airbnb": ("ABNB", "USD"),
+            "spotify": ("SPOT", "USD"),
+            "shopify": ("SHOP", "USD"),
+            "palantir": ("PLTR", "USD"),
+            "snowflake": ("SNOW", "USD"),
+            "crowdstrike": ("CRWD", "USD"),
+            "datadog": ("DDOG", "USD"),
+            "servicenow": ("NOW", "USD"),
+            "workday": ("WDAY", "USD"),
+            "zoom": ("ZM", "USD"),
+            "docusign": ("DOCU", "USD"),
+            "square": ("SQ", "USD"),
+            "block": ("SQ", "USD"),
+            "coinbase": ("COIN", "USD"),
+            "robinhood": ("HOOD", "USD"),
+            "rivian": ("RIVN", "USD"),
+            "lucid": ("LCID", "USD"),
+            "nio": ("NIO", "USD"),
+            "xpeng": ("XPEV", "USD"),
+            "li auto": ("LI", "USD"),
         ]
         
         // Words that should NEVER be treated as stock symbols
@@ -790,10 +828,11 @@ struct PortfolioImportView: View {
                     
                     // IG format: Quantity | Cost (total) | Current Price | Value | Gain/Loss | Gain %
                     // We need: shares (first number), and can calculate avgCost from cost/shares
-                    if numbersFound.count >= 3 {
+                    if numbersFound.count >= 2 {
                         let shares = numbersFound[0]
-                        let totalCost = numbersFound[1]
-                        let avgCost = shares > 0 ? totalCost / shares : 0
+                        // Use second number as total cost, third as current price if available
+                        let totalCost = numbersFound.count > 1 ? numbersFound[1] : 0
+                        let avgCost = shares > 0 ? totalCost / shares : (numbersFound.count > 2 ? numbersFound[2] : 0)
                         
                         // Determine currency - use section or document context
                         let currency = currentSection == "USD" ? "USD" : info.currency
@@ -917,18 +956,36 @@ struct PortfolioImportView: View {
     
     // MARK: - Import Positions
     private func importPositions() {
+        print("📥 Starting import of \(parsedPositions.count) positions...")
+        
+        guard !parsedPositions.isEmpty else {
+            errorMessage = "No positions to import"
+            return
+        }
+        
         // Aggregate duplicates if enabled
         var positionsToImport = parsedPositions
         if aggregateDuplicates {
             positionsToImport = aggregatePositions(parsedPositions)
         }
         
+        print("📥 After aggregation: \(positionsToImport.count) positions")
+        
         // Clear existing if replace mode
         if importMode == .replace {
             clearAllPositions()
         }
         
+        var importedCount = 0
+        var updatedCount = 0
+        
         for parsed in positionsToImport {
+            // Skip invalid positions
+            guard parsed.shares > 0 else {
+                print("⚠️ Skipping \(parsed.symbol): invalid shares (\(parsed.shares))")
+                continue
+            }
+            
             // Check if we should merge with existing position
             if importMode == .merge {
                 if let existingPosition = findExistingPosition(symbol: parsed.symbol) {
@@ -939,6 +996,8 @@ struct PortfolioImportView: View {
                     
                     existingPosition.shares = totalShares
                     existingPosition.averageCost = newAvgCost
+                    updatedCount += 1
+                    print("✅ Updated: \(parsed.symbol) - now \(totalShares) shares")
                     continue
                 }
             }
@@ -961,10 +1020,18 @@ struct PortfolioImportView: View {
             
             modelContext.insert(stock)
             modelContext.insert(position)
+            importedCount += 1
+            print("✅ Imported: \(parsed.symbol) - \(parsed.shares) shares @ \(parsed.currency)\(parsed.averageCost)")
         }
         
-        try? modelContext.save()
-        dismiss()
+        do {
+            try modelContext.save()
+            print("💾 Saved \(importedCount) new, \(updatedCount) updated positions")
+            dismiss()
+        } catch {
+            print("❌ Failed to save: \(error)")
+            errorMessage = "Failed to save positions: \(error.localizedDescription)"
+        }
     }
     
     // MARK: - Aggregate Positions
