@@ -31,6 +31,15 @@ struct PortfolioImportView: View {
     @State private var rawOCRText: [String] = [] // For debugging OCR
     @State private var showRawText = false
     
+    // Uncertain mappings that need user confirmation
+    @State private var uncertainMappings: [UncertainMapping] = []
+    @State private var showMappingConfirmation = false
+    @State private var currentMappingIndex = 0
+    @State private var editingSymbol = ""
+    
+    // Exchange rate for currency conversion (USD to GBP)
+    @State private var usdToGbpRate: Double = 0.79 // Default fallback
+    
     enum ImportMethod: String, CaseIterable {
         case file = "File Import"
         case manual = "Manual Entry"
@@ -163,7 +172,143 @@ struct PortfolioImportView: View {
             .sheet(isPresented: $showRawText) {
                 rawTextDebugSheet
             }
+            .sheet(isPresented: $showMappingConfirmation) {
+                mappingConfirmationSheet
+            }
+            .onAppear {
+                fetchExchangeRate()
+            }
         }
+    }
+    
+    // MARK: - Mapping Confirmation Sheet
+    private var mappingConfirmationSheet: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                if currentMappingIndex < uncertainMappings.count {
+                    let mapping = uncertainMappings[currentMappingIndex]
+                    
+                    Text("Confirm Symbol Mapping")
+                        .font(.headline)
+                    
+                    Text("Found: \"\(mapping.originalName)\"")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                    
+                    VStack(spacing: 12) {
+                        Text("Suggested: \(mapping.suggestedSymbol)")
+                            .font(.title2.bold())
+                        
+                        Text("\(mapping.shares.formatted()) shares @ \(mapping.currency == "GBP" ? "£" : "$")\(mapping.totalCost.formatted())")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding()
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(12)
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Enter correct symbol (or leave as-is):")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        TextField("Symbol", text: $editingSymbol)
+                            .textFieldStyle(.roundedBorder)
+                            .autocapitalization(.allCharacters)
+                            .font(.title3.monospaced())
+                    }
+                    .padding(.horizontal)
+                    
+                    HStack(spacing: 16) {
+                        Button("Skip") {
+                            skipCurrentMapping()
+                        }
+                        .foregroundColor(.secondary)
+                        
+                        Button("Confirm") {
+                            confirmCurrentMapping()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .padding(.top)
+                    
+                    Text("\(currentMappingIndex + 1) of \(uncertainMappings.count)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.top, 20)
+                } else {
+                    Text("All mappings confirmed!")
+                        .font(.headline)
+                    
+                    Button("Continue to Import") {
+                        finalizeMappings()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding()
+            .navigationTitle("Verify Symbols")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showMappingConfirmation = false
+                    }
+                }
+            }
+        }
+    }
+    
+    private func skipCurrentMapping() {
+        // Remove this uncertain mapping (don't import it)
+        if currentMappingIndex < uncertainMappings.count {
+            uncertainMappings[currentMappingIndex].isResolved = false
+        }
+        moveToNextMapping()
+    }
+    
+    private func confirmCurrentMapping() {
+        if currentMappingIndex < uncertainMappings.count {
+            let symbol = editingSymbol.isEmpty ? uncertainMappings[currentMappingIndex].suggestedSymbol : editingSymbol.uppercased()
+            uncertainMappings[currentMappingIndex].finalSymbol = symbol
+            uncertainMappings[currentMappingIndex].isResolved = true
+        }
+        moveToNextMapping()
+    }
+    
+    private func moveToNextMapping() {
+        if currentMappingIndex < uncertainMappings.count - 1 {
+            currentMappingIndex += 1
+            if currentMappingIndex < uncertainMappings.count {
+                editingSymbol = uncertainMappings[currentMappingIndex].suggestedSymbol
+            }
+        } else {
+            finalizeMappings()
+        }
+    }
+    
+    private func finalizeMappings() {
+        // Add confirmed uncertain mappings to parsed positions
+        for mapping in uncertainMappings where mapping.isResolved {
+            if let symbol = mapping.finalSymbol {
+                let avgCost = mapping.shares > 0 ? mapping.totalCost / mapping.shares : 0
+                let position = ParsedPosition(
+                    symbol: symbol,
+                    shares: mapping.shares,
+                    averageCost: avgCost,
+                    currency: mapping.currency,
+                    originalName: mapping.originalName,
+                    isConfirmed: true
+                )
+                parsedPositions.append(position)
+            }
+        }
+        
+        showMappingConfirmation = false
+        uncertainMappings.removeAll()
+        currentMappingIndex = 0
     }
     
     // MARK: - Unified File Import Section
@@ -420,16 +565,40 @@ struct PortfolioImportView: View {
     }
     
     private func formatTotalValue(_ positions: [ParsedPosition]) -> String {
-        let total = positions.reduce(0) { $0 + $1.estimatedValue }
-        let hasGBP = positions.contains { $0.currency == "GBP" }
+        // Convert everything to GBP
+        let totalGBP = positions.reduce(0.0) { total, position in
+            total + position.valueInGBP(usdToGbpRate: usdToGbpRate)
+        }
+        
         let hasUSD = positions.contains { $0.currency == "USD" }
         
-        if hasGBP && hasUSD {
-            return "Mixed currencies"
-        } else if hasGBP {
-            return "£\(total.formatted(.number.precision(.fractionLength(2))))"
+        if hasUSD {
+            // Show converted total with rate info
+            return "£\(totalGBP.formatted(.number.precision(.fractionLength(2)))) (incl. USD @ \(usdToGbpRate.formatted(.number.precision(.fractionLength(2)))))"
         } else {
-            return "$\(total.formatted(.number.precision(.fractionLength(2))))"
+            return "£\(totalGBP.formatted(.number.precision(.fractionLength(2))))"
+        }
+    }
+    
+    // Fetch current exchange rate
+    private func fetchExchangeRate() {
+        Task {
+            do {
+                // Use a free exchange rate API
+                let url = URL(string: "https://api.exchangerate-api.com/v4/latest/USD")!
+                let (data, _) = try await URLSession.shared.data(from: url)
+                
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let rates = json["rates"] as? [String: Double],
+                   let gbpRate = rates["GBP"] {
+                    await MainActor.run {
+                        self.usdToGbpRate = gbpRate
+                        print("💱 Exchange rate updated: 1 USD = \(gbpRate) GBP")
+                    }
+                }
+            } catch {
+                print("⚠️ Failed to fetch exchange rate: \(error). Using default \(usdToGbpRate)")
+            }
         }
     }
     
@@ -860,13 +1029,20 @@ struct PortfolioImportView: View {
             parseBySymbols(lines: lines, into: &foundPositions, excludeWords: excludeWords)
         }
         
+        // Also look for unmatched lines that might contain company names
+        // These will be flagged for user confirmation
+        uncertainMappings.removeAll()
+        findUnmatchedCompanies(lines: lines, matched: foundPositions, excludeWords: excludeWords, currentSection: currentSection)
+        
         // Convert to ParsedPosition array
         for (symbol, data) in foundPositions {
             let position = ParsedPosition(
                 symbol: symbol,
                 shares: data.shares,
                 averageCost: data.avgCost,
-                currency: data.currency
+                currency: data.currency,
+                originalName: nil,
+                isConfirmed: true
             )
             parsedPositions.append(position)
         }
@@ -875,10 +1051,156 @@ struct PortfolioImportView: View {
         parsedPositions.sort { $0.estimatedValue > $1.estimatedValue }
         
         print("📊 Total positions found: \(parsedPositions.count)")
+        print("❓ Uncertain mappings: \(uncertainMappings.count)")
         
-        if parsedPositions.isEmpty {
+        if parsedPositions.isEmpty && uncertainMappings.isEmpty {
             errorMessage = "Could not extract positions from \(source). Tap 'View Extracted Text' to see the raw data, then try CSV import with the format: Symbol, Shares, AvgCost, Currency"
         }
+        
+        // Show confirmation sheet if there are uncertain mappings
+        if !uncertainMappings.isEmpty {
+            currentMappingIndex = 0
+            editingSymbol = uncertainMappings.first?.suggestedSymbol ?? ""
+            showMappingConfirmation = true
+        }
+    }
+    
+    // MARK: - Find Unmatched Companies
+    private func findUnmatchedCompanies(lines: [String], matched: [String: (shares: Double, avgCost: Double, currency: String)], excludeWords: Set<String>, currentSection: String) {
+        // Pattern to detect potential company name lines (contains words like Inc, PLC, Corp, Ltd, etc.)
+        let companyIndicators = ["inc", "plc", "corp", "ltd", "limited", "group", "holdings", "systems", "technologies"]
+        
+        // Matched company patterns to skip
+        let matchedPatterns = Set(["barclays", "diageo", "hsbc", "lloyds", "vodafone", "apple", "microsoft", 
+                                    "google", "alphabet", "amazon", "tesla", "meta", "nvidia", "adobe",
+                                    "salesforce", "merck", "comcast", "verizon", "unitedhealth"])
+        
+        var processedLines = Set<Int>() // Track which lines we've already processed
+        var currentCurrency = "GBP"
+        
+        for (index, line) in lines.enumerated() {
+            let lineLower = line.lowercased()
+            
+            // Track section for currency
+            if lineLower.contains("holdings gbp") { currentCurrency = "GBP"; continue }
+            if lineLower.contains("holdings usd") { currentCurrency = "USD"; continue }
+            
+            // Skip if already processed or if it's a header/total line
+            if processedLines.contains(index) { continue }
+            if lineLower.contains("details") && lineLower.contains("quantity") { continue }
+            if lineLower.starts(with: "total") { continue }
+            
+            // Check if this looks like a company name line
+            let hasCompanyIndicator = companyIndicators.contains { lineLower.contains($0) }
+            let hasNumbers = extractNumbers(from: line).count >= 2
+            
+            // Skip if it matches a known pattern we already handled
+            let alreadyMatched = matchedPatterns.contains { lineLower.contains($0) }
+            if alreadyMatched { continue }
+            
+            if hasCompanyIndicator && hasNumbers {
+                processedLines.insert(index)
+                
+                // Extract numbers from this line
+                var numbersFound: [Double] = []
+                for j in index..<min(index + 3, lines.count) {
+                    numbersFound.append(contentsOf: extractNumbers(from: lines[j]))
+                }
+                
+                if numbersFound.count >= 2 {
+                    let shares = numbersFound[0]
+                    let totalCost = numbersFound[1]
+                    
+                    // Try to guess a symbol from the line
+                    let suggestedSymbol = guessSymbol(from: line)
+                    
+                    // Clean up the company name for display
+                    let cleanedName = cleanCompanyName(line)
+                    
+                    print("❓ Uncertain: '\(cleanedName)' -> \(suggestedSymbol), \(shares) shares")
+                    
+                    let mapping = UncertainMapping(
+                        originalName: cleanedName,
+                        suggestedSymbol: suggestedSymbol,
+                        shares: shares,
+                        totalCost: totalCost,
+                        currency: currentCurrency
+                    )
+                    uncertainMappings.append(mapping)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Guess Symbol from Company Name
+    private func guessSymbol(from line: String) -> String {
+        let lineLower = line.lowercased()
+        
+        // Common mappings that might be in different formats
+        let quickMappings: [String: String] = [
+            "alphabet": "GOOGL",
+            "class a": "GOOGL", // Often used with Alphabet
+            "comcast": "CMCSA",
+            "verizon": "VZ",
+            "unitedhealth": "UNH",
+            "united health": "UNH",
+            "adobe": "ADBE",
+            "salesforce": "CRM",
+            "microsoft": "MSFT",
+            "apple": "AAPL",
+            "amazon": "AMZN",
+            "tesla": "TSLA",
+            "nvidia": "NVDA",
+            "merck": "MRK",
+        ]
+        
+        for (keyword, symbol) in quickMappings {
+            if lineLower.contains(keyword) {
+                return symbol
+            }
+        }
+        
+        // Try to extract uppercase letters as a potential symbol
+        let words = line.components(separatedBy: .whitespaces)
+        for word in words {
+            let cleaned = word.uppercased().filter { $0.isLetter }
+            if cleaned.count >= 2 && cleaned.count <= 5 && cleaned == cleaned.uppercased() {
+                let excluded = ["THE", "AND", "FOR", "PLC", "LTD", "INC", "USD", "GBP", "EUR", "CORP", "CLASS"]
+                if !excluded.contains(cleaned) {
+                    return cleaned
+                }
+            }
+        }
+        
+        return "????"
+    }
+    
+    // MARK: - Clean Company Name
+    private func cleanCompanyName(_ line: String) -> String {
+        // Remove numbers and special characters, keep company name
+        var cleaned = line
+        
+        // Remove common suffixes and numbers
+        let removePatterns = ["(24 hours)", "(24hours)", "24 hours", "24hours"]
+        for pattern in removePatterns {
+            cleaned = cleaned.replacingOccurrences(of: pattern, with: "", options: .caseInsensitive)
+        }
+        
+        // Remove standalone numbers (keep text)
+        let words = cleaned.components(separatedBy: .whitespaces)
+        let textWords = words.filter { word in
+            let isNumber = Double(word.replacingOccurrences(of: ",", with: "")) != nil
+            return !isNumber
+        }
+        
+        cleaned = textWords.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        
+        // Limit length
+        if cleaned.count > 50 {
+            cleaned = String(cleaned.prefix(50)) + "..."
+        }
+        
+        return cleaned.isEmpty ? line : cleaned
     }
     
     // MARK: - Helper: Extract Numbers from Text
@@ -1086,10 +1408,33 @@ struct ParsedPosition: Identifiable {
     var shares: Double
     var averageCost: Double
     var currency: String
+    var originalName: String? // Company name from PDF/OCR
+    var isConfirmed: Bool = true // True if auto-matched with high confidence
     
     var estimatedValue: Double {
         shares * averageCost
     }
+    
+    // Convert to GBP using exchange rate
+    func valueInGBP(usdToGbpRate: Double) -> Double {
+        if currency == "GBP" {
+            return estimatedValue
+        } else {
+            return estimatedValue * usdToGbpRate
+        }
+    }
+}
+
+// Uncertain mapping that needs user confirmation
+struct UncertainMapping: Identifiable {
+    let id = UUID()
+    var originalName: String
+    var suggestedSymbol: String
+    var shares: Double
+    var totalCost: Double
+    var currency: String
+    var isResolved: Bool = false
+    var finalSymbol: String?
 }
 
 struct ParsedPositionRow: View {
