@@ -367,7 +367,7 @@ struct PortfolioView: View {
                         Image(systemName: "camera.viewfinder")
                             .font(.title2)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Import from Screenshot")
+                            Text("Import Positions")
                                 .font(.headline)
                             Text("Take a screenshot of your IG, Hargreaves, or ii portfolio")
                                 .font(.caption)
@@ -445,17 +445,21 @@ struct PortfolioView: View {
     
     // MARK: - Helpers
     
+    private var currencySymbol: String {
+        appState.displayCurrency.symbol
+    }
+    
     private func formatCurrency(_ value: Double) -> String {
-        "£\(value.formatted(.number.precision(.fractionLength(2))))"
+        "\(currencySymbol)\(value.formatted(.number.precision(.fractionLength(2))))"
     }
     
     private func formatCurrencyShort(_ value: Double) -> String {
         if value >= 1000000 {
-            return "£\((value / 1000000).formatted(.number.precision(.fractionLength(1))))M"
+            return "\(currencySymbol)\((value / 1000000).formatted(.number.precision(.fractionLength(1))))M"
         } else if value >= 1000 {
-            return "£\((value / 1000).formatted(.number.precision(.fractionLength(1))))K"
+            return "\(currencySymbol)\((value / 1000).formatted(.number.precision(.fractionLength(1))))K"
         }
-        return "£\(value.formatted(.number.precision(.fractionLength(0))))"
+        return "\(currencySymbol)\(value.formatted(.number.precision(.fractionLength(0))))"
     }
     
     private func formatPercent(_ value: Double) -> String {

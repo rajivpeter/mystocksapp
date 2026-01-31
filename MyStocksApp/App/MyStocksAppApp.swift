@@ -93,6 +93,10 @@ class AppState {
     var enableHapticFeedback = true
     var notificationsEnabled = true
     
+    // Currency settings
+    var displayCurrency: Currency = .gbp  // Main display currency for totals
+    var showNativeCurrency = true         // Show stocks in their native currency on detail pages
+    
     func handleDeepLink(_ url: URL) {
         // Handle deep links from notifications or widgets
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: true) else { return }

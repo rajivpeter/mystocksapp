@@ -51,6 +51,31 @@ struct SettingsView: View {
                     }
                 }
                 
+                // Display Section
+                Section("Display") {
+                    Picker(selection: Bindable(appState).displayCurrency) {
+                        ForEach(Currency.allCases, id: \.self) { currency in
+                            Text("\(currency.symbol) \(currency.rawValue)").tag(currency)
+                        }
+                    } label: {
+                        SettingsRow(
+                            icon: "sterlingsign.circle.fill",
+                            title: "Display Currency",
+                            subtitle: "For portfolio totals",
+                            color: .green
+                        )
+                    }
+                    
+                    Toggle(isOn: Bindable(appState).showNativeCurrency) {
+                        SettingsRow(
+                            icon: "arrow.left.arrow.right",
+                            title: "Native Currency",
+                            subtitle: "Show stocks in their original currency",
+                            color: .blue
+                        )
+                    }
+                }
+                
                 // Notifications Section
                 Section("Notifications") {
                     Toggle(isOn: $notificationsEnabled) {
