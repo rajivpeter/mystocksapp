@@ -630,127 +630,168 @@ struct PortfolioImportView: View {
     private func parseExtractedText(_ lines: [String], source: String) {
         parsedPositions.removeAll()
         
-        // Known stock symbols from common UK/US exchanges
-        let knownSymbols = Set([
-            // UK stocks (FTSE)
+        // Detect if this is an IG statement
+        let fullText = lines.joined(separator: " ")
+        let isIGStatement = fullText.contains("IG") || fullText.contains("ig.com") || 
+                            fullText.contains("Share Dealing") || fullText.contains("EPIC")
+        let isUKDocument = fullText.contains("£") || fullText.contains("GBP") || 
+                           fullText.contains("London") || fullText.contains("LSE") ||
+                           fullText.contains("plc") || fullText.contains("PLC")
+        
+        // Default currency based on document type
+        let defaultCurrency = isUKDocument ? "GBP" : "USD"
+        
+        print("📄 Parsing \(source): isIG=\(isIGStatement), isUK=\(isUKDocument), defaultCurrency=\(defaultCurrency)")
+        print("📄 Total lines: \(lines.count)")
+        
+        var foundPositions: [String: (shares: Double, avgCost: Double, marketValue: Double, currency: String)] = [:]
+        
+        // Extended list of UK stock symbols (IG uses EPIC codes)
+        let ukSymbols = Set([
+            // FTSE 100
             "BARC", "LLOY", "HSBA", "BP", "SHEL", "VOD", "AZN", "GSK", "ULVR", "RIO",
-            "GLEN", "AAL", "BHP", "RR", "IAG", "AVV", "BA", "BATS", "DGE", "REL",
-            // US stocks
-            "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "TSLA", "META", "NVDA", "JPM", "V",
-            "JNJ", "WMT", "PG", "MA", "HD", "DIS", "NFLX", "PYPL", "INTC", "AMD",
-            "CRM", "ADBE", "CSCO", "PFE", "KO", "PEP", "MRK", "ABT", "TMO", "COST"
+            "GLEN", "AAL", "BHP", "RR", "IAG", "BA", "BATS", "DGE", "REL", "NG",
+            "SSE", "CNA", "LGEN", "STAN", "PRU", "EXPN", "SMT", "CPG", "SBRY", "TSCO",
+            "ABF", "ANTO", "PSON", "WPP", "IHG", "INF", "SGE", "IMB", "MNG", "JD",
+            "SMIN", "RMV", "AUTO", "FRAS", "BDEV", "TW", "PSN", "NWG", "LAND", "WTB",
+            // FTSE 250
+            "III", "PDG", "HIK", "DARK", "RTO", "SHED", "MGGT", "JMAT", "MNDI", "SMDS",
+            "GFTU", "CCH", "SDR", "WEIR", "RWS", "QQ", "OCDO", "AGK", "KGF", "PHNX",
+            // LSE Small Cap
+            "LSE", "ITV", "FOUR", "VNET"
         ])
         
-        // Patterns for different broker formats
-        // Pattern 1: Symbol followed by numbers on same line (e.g., "AAPL 100 150.50")
-        let inlinePattern = try! NSRegularExpression(
-            pattern: "([A-Z]{1,5}(?:\\.[A-Z]{1,2})?)\\s+([0-9,]+(?:\\.\\d+)?)\\s+(?:[£$])?([0-9,]+(?:\\.\\d+)?)",
-            options: []
-        )
+        // US symbols
+        let usSymbols = Set([
+            "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "TSLA", "META", "NVDA", "JPM", "V",
+            "JNJ", "WMT", "PG", "MA", "HD", "DIS", "NFLX", "PYPL", "INTC", "AMD",
+            "CRM", "ADBE", "CSCO", "PFE", "KO", "PEP", "MRK", "ABT", "TMO", "COST",
+            "ORCL", "ACN", "AVGO", "TXN", "QCOM", "UNH", "CVX", "XOM", "BAC", "WFC"
+        ])
         
-        // Pattern 2: Stock symbol (standalone or with company name)
-        let symbolPattern = try! NSRegularExpression(
-            pattern: "\\b([A-Z]{2,5}(?:\\.[A-Z]{1,2})?)\\b",
-            options: []
-        )
+        // Words to exclude from symbol detection
+        let excludeWords = Set([
+            "THE", "AND", "FOR", "PLC", "LTD", "INC", "USD", "GBP", "EUR", "BUY", "SELL",
+            "OPEN", "CLOSE", "HIGH", "LOW", "TOTAL", "NET", "FEE", "TAX", "CASH", "DIV",
+            "DIVIDEND", "VALUE", "PRICE", "COST", "PROFIT", "LOSS", "SHARE", "SHARES",
+            "STOCK", "EPIC", "NAME", "QTY", "AVG", "MKT", "PAGE", "DATE", "REF"
+        ])
         
-        // Pattern 3: Numbers (shares, prices, values)
+        // Pattern for extracting numbers with optional currency symbols
         let numberPattern = try! NSRegularExpression(
-            pattern: "(?:^|\\s)([£$])?([0-9,]+(?:\\.\\d{1,4})?)(?:\\s|$|[^0-9])",
+            pattern: "[£$]?([0-9]{1,3}(?:,?[0-9]{3})*(?:\\.[0-9]{1,4})?)",
             options: []
         )
         
-        var foundPositions: [String: (shares: Double, cost: Double, currency: String)] = [:]
+        // Pattern for stock symbols (2-5 uppercase letters, optionally with .L suffix)
+        let symbolPattern = try! NSRegularExpression(
+            pattern: "\\b([A-Z]{2,5})(?:\\.L)?\\b",
+            options: []
+        )
         
-        // First pass: Try inline pattern (most reliable)
-        for line in lines {
+        // Process line by line looking for positions
+        var i = 0
+        while i < lines.count {
+            let line = lines[i]
             let range = NSRange(line.startIndex..., in: line)
-            if let match = inlinePattern.firstMatch(in: line, options: [], range: range) {
-                if let symbolRange = Range(match.range(at: 1), in: line),
-                   let sharesRange = Range(match.range(at: 2), in: line),
-                   let priceRange = Range(match.range(at: 3), in: line) {
-                    
-                    let symbol = String(line[symbolRange])
-                    let sharesStr = String(line[sharesRange]).replacingOccurrences(of: ",", with: "")
-                    let priceStr = String(line[priceRange]).replacingOccurrences(of: ",", with: "")
-                    
-                    if let shares = Double(sharesStr), let price = Double(priceStr) {
-                        let currency = symbol.contains(".L") || line.contains("£") ? "GBP" : "USD"
-                        
-                        if foundPositions[symbol] != nil {
-                            // Aggregate if already exists
-                            let existing = foundPositions[symbol]!
-                            let totalShares = existing.shares + shares
-                            let totalCost = (existing.shares * existing.cost) + (shares * price)
-                            foundPositions[symbol] = (totalShares, totalCost / totalShares, currency)
-                        } else {
-                            foundPositions[symbol] = (shares, price, currency)
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Second pass: Look for known symbols and nearby numbers
-        if foundPositions.isEmpty {
-            var currentSymbol: String?
-            var currentNumbers: [Double] = []
-            var currentCurrency = "USD"
             
-            for line in lines {
-                let range = NSRange(line.startIndex..., in: line)
+            // Find potential symbols in this line
+            let symbolMatches = symbolPattern.matches(in: line, options: [], range: range)
+            
+            for match in symbolMatches {
+                guard let symbolRange = Range(match.range(at: 1), in: line) else { continue }
+                let symbol = String(line[symbolRange])
                 
-                // Look for known symbols
-                let symbolMatches = symbolPattern.matches(in: line, options: [], range: range)
-                for match in symbolMatches {
-                    if let symbolRange = Range(match.range(at: 1), in: line) {
-                        let potentialSymbol = String(line[symbolRange])
-                        
-                        // Check if it's a known symbol or looks like a valid ticker
-                        if knownSymbols.contains(potentialSymbol) || 
-                           potentialSymbol.count >= 2 && potentialSymbol.count <= 5 &&
-                           !["THE", "AND", "FOR", "PLC", "LTD", "INC", "USD", "GBP", "EUR"].contains(potentialSymbol) {
-                            
-                            // Save previous symbol's data
-                            if let symbol = currentSymbol, !currentNumbers.isEmpty {
-                                let shares = currentNumbers[0]
-                                let cost = currentNumbers.count > 1 ? currentNumbers[1] : 0
-                                foundPositions[symbol] = (shares, cost, currentCurrency)
-                            }
-                            
-                            currentSymbol = potentialSymbol
-                            currentNumbers = []
-                            currentCurrency = potentialSymbol.contains(".L") ? "GBP" : "USD"
-                        }
+                // Skip excluded words
+                if excludeWords.contains(symbol) { continue }
+                
+                // Check if this looks like a valid stock symbol
+                let isKnownUK = ukSymbols.contains(symbol)
+                let isKnownUS = usSymbols.contains(symbol)
+                let looksLikeSymbol = symbol.count >= 2 && symbol.count <= 5
+                
+                if isKnownUK || isKnownUS || (looksLikeSymbol && !excludeWords.contains(symbol)) {
+                    // Determine currency
+                    let currency: String
+                    if isKnownUK || line.contains("£") || line.contains("GBP") {
+                        currency = "GBP"
+                    } else if isKnownUS || line.contains("$") || line.contains("USD") {
+                        currency = "USD"
+                    } else {
+                        currency = defaultCurrency
                     }
-                }
-                
-                // Look for numbers
-                if currentSymbol != nil {
-                    let numMatches = numberPattern.matches(in: line, options: [], range: range)
-                    for match in numMatches {
-                        if let currencyRange = Range(match.range(at: 1), in: line) {
-                            let curr = String(line[currencyRange])
-                            if curr == "£" { currentCurrency = "GBP" }
-                            else if curr == "$" { currentCurrency = "USD" }
-                        }
+                    
+                    // Look for numbers in this line and nearby lines
+                    var numbersFound: [Double] = []
+                    
+                    // Check current line and next 2 lines for numbers
+                    for j in i..<min(i + 3, lines.count) {
+                        let searchLine = lines[j]
+                        let searchRange = NSRange(searchLine.startIndex..., in: searchLine)
+                        let numMatches = numberPattern.matches(in: searchLine, options: [], range: searchRange)
                         
-                        if let numRange = Range(match.range(at: 2), in: line) {
-                            let numStr = String(line[numRange]).replacingOccurrences(of: ",", with: "")
-                            if let num = Double(numStr), num > 0 && num < 10_000_000 {
-                                currentNumbers.append(num)
+                        for numMatch in numMatches {
+                            if let numRange = Range(numMatch.range(at: 1), in: searchLine) {
+                                let numStr = String(searchLine[numRange]).replacingOccurrences(of: ",", with: "")
+                                if let num = Double(numStr), num > 0 {
+                                    numbersFound.append(num)
+                                }
                             }
                         }
                     }
+                    
+                    // IG format typically has: Quantity, Avg Open, Current Price, Market Value, P/L
+                    // We want: shares (quantity), avgCost (avg open), marketValue
+                    if numbersFound.count >= 2 {
+                        // Heuristics to identify which number is which:
+                        // - Shares are usually whole numbers or small decimals < 10000
+                        // - Prices are usually < 10000 with decimals
+                        // - Market value is usually the largest number
+                        
+                        let sortedNums = numbersFound.sorted()
+                        let maxNum = sortedNums.last ?? 0
+                        
+                        var shares: Double = 0
+                        var avgCost: Double = 0
+                        var marketValue: Double = maxNum
+                        
+                        // Find shares - usually the first reasonable quantity
+                        for num in numbersFound {
+                            if num < 100000 && num != maxNum {
+                                if shares == 0 {
+                                    shares = num
+                                } else if avgCost == 0 && num < shares {
+                                    // This might be the price, swap
+                                    avgCost = shares
+                                    shares = num
+                                } else if avgCost == 0 {
+                                    avgCost = num
+                                }
+                            }
+                        }
+                        
+                        // If we have market value but no avgCost, calculate it
+                        if avgCost == 0 && shares > 0 && marketValue > 0 {
+                            avgCost = marketValue / shares
+                        }
+                        
+                        // Only add if we have valid data
+                        if shares > 0 && (avgCost > 0 || marketValue > 0) {
+                            // Check if this position already exists (aggregate)
+                            if let existing = foundPositions[symbol] {
+                                let totalShares = existing.shares + shares
+                                let totalValue = existing.marketValue + marketValue
+                                let newAvgCost = totalValue / totalShares
+                                foundPositions[symbol] = (totalShares, newAvgCost, totalValue, currency)
+                            } else {
+                                foundPositions[symbol] = (shares, avgCost, marketValue, currency)
+                            }
+                            print("✅ Found: \(symbol) - \(shares) shares @ \(currency)\(avgCost) = \(currency)\(marketValue)")
+                        }
+                    }
                 }
             }
-            
-            // Save last symbol
-            if let symbol = currentSymbol, !currentNumbers.isEmpty {
-                let shares = currentNumbers[0]
-                let cost = currentNumbers.count > 1 ? currentNumbers[1] : 0
-                foundPositions[symbol] = (shares, cost, currentCurrency)
-            }
+            i += 1
         }
         
         // Convert to ParsedPosition array
@@ -758,17 +799,19 @@ struct PortfolioImportView: View {
             let position = ParsedPosition(
                 symbol: symbol,
                 shares: data.shares,
-                averageCost: data.cost,
+                averageCost: data.avgCost,
                 currency: data.currency
             )
             parsedPositions.append(position)
         }
         
-        // Sort by symbol
-        parsedPositions.sort { $0.symbol < $1.symbol }
+        // Sort by market value descending
+        parsedPositions.sort { $0.estimatedValue > $1.estimatedValue }
+        
+        print("📊 Total positions found: \(parsedPositions.count)")
         
         if parsedPositions.isEmpty {
-            errorMessage = "Could not extract positions from \(source). Tap 'View Extracted Text' to see what was found, or try CSV/PDF import."
+            errorMessage = "Could not extract positions from \(source). Tap 'View Extracted Text' to see what was found, or try CSV import instead."
         }
     }
     
