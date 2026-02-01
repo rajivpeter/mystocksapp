@@ -403,13 +403,26 @@ struct PortfolioImportView: View {
             
             // CSV Format Help
             DisclosureGroup("CSV Format") {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("symbol,shares,average_cost,currency")
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Header row:")
+                        .font(.caption.bold())
+                    Text("Symbol,Shares,AvgCost,Currency,Ref")
                         .font(.system(.caption, design: .monospaced))
-                    Text("AAPL,100,150.50,USD")
+                    
+                    Text("Examples:")
+                        .font(.caption.bold())
+                        .padding(.top, 4)
+                    Text("AAPL,43,197.11,USD,IG GIA")
                         .font(.system(.caption, design: .monospaced))
-                    Text("BARC.L,500,1.50,GBP")
+                    Text("BARC,4000,1.16,GBP,IG ISA")
                         .font(.system(.caption, design: .monospaced))
+                    Text("HSBA,1337,3.79,GBP,ii")
+                        .font(.system(.caption, design: .monospaced))
+                    
+                    Text("Ref column is optional - use it to track which account (IG ISA, IG GIA, ii, HL, etc.)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .padding(.top, 4)
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -678,7 +691,8 @@ struct PortfolioImportView: View {
             return
         }
         
-        // Skip header row
+        // Skip header row (first line)
+        // Format: Symbol, Shares, AvgCost, Currency, Ref
         for (index, line) in lines.dropFirst().enumerated() {
             let columns = line.components(separatedBy: ",")
                 .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -695,13 +709,18 @@ struct PortfolioImportView: View {
                 continue
             }
             
+            // Column 4: Currency (default USD)
             let currency = columns.count > 3 ? columns[3].uppercased() : "USD"
+            
+            // Column 5: Account Reference (optional)
+            let accountRef = columns.count > 4 ? columns[4] : nil
             
             let position = ParsedPosition(
                 symbol: symbol,
                 shares: shares,
                 averageCost: avgCost,
-                currency: currency
+                currency: currency,
+                accountRef: accountRef
             )
             parsedPositions.append(position)
         }
@@ -968,8 +987,8 @@ struct PortfolioImportView: View {
             PDF parsing couldn't extract valid positions.
             
             Recommended: Use CSV import instead.
-            Format: Symbol, Shares, AvgCost, Currency
-            Example: AAPL, 43, 197.11, USD
+            Format: Symbol, Shares, AvgCost, Currency, Ref
+            Example: AAPL, 43, 197.11, USD, IG ISA
             
             Tap 'Paste CSV Data' to manually enter your positions.
             """
@@ -1092,13 +1111,15 @@ struct PortfolioImportView: View {
                 shares: parsed.shares,
                 averageCost: parsed.averageCost,
                 purchaseDate: Date(),
-                stock: stock
+                stock: stock,
+                accountRef: parsed.accountRef
             )
             
             modelContext.insert(stock)
             modelContext.insert(position)
             importedCount += 1
-            print("✅ Imported: \(parsed.symbol) - \(parsed.shares) shares @ \(parsed.currency)\(parsed.averageCost)")
+            let refInfo = parsed.accountRef.map { " [\($0)]" } ?? ""
+            print("✅ Imported: \(parsed.symbol)\(refInfo) - \(parsed.shares) shares @ \(parsed.currency)\(parsed.averageCost)")
         }
         
         do {
@@ -1163,6 +1184,7 @@ struct ParsedPosition: Identifiable {
     var shares: Double
     var averageCost: Double
     var currency: String
+    var accountRef: String? // Account reference (e.g., "IG ISA", "ii", "HL")
     var originalName: String? // Company name from PDF/OCR
     var isConfirmed: Bool = true // True if auto-matched with high confidence
     
@@ -1198,9 +1220,22 @@ struct ParsedPositionRow: View {
     
     var body: some View {
         HStack {
-            VStack(alignment: .leading) {
-                Text(position.symbol)
-                    .font(.headline)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(position.symbol)
+                        .font(.headline)
+                    
+                    // Show account reference badge if present
+                    if let ref = position.accountRef, !ref.isEmpty {
+                        Text(ref)
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.brandPrimary.opacity(0.3))
+                            .cornerRadius(4)
+                    }
+                }
+                
                 Text("\(position.shares, specifier: "%.2f") shares @ \(position.currency == "GBP" ? "£" : "$")\(position.averageCost, specifier: "%.2f")")
                     .font(.caption)
                     .foregroundColor(.secondary)

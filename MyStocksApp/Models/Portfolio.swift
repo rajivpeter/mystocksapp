@@ -131,6 +131,7 @@ final class Position {
     var shares: Double
     var averageCost: Double
     var purchaseDate: Date
+    var accountRef: String? // Account reference (e.g., "IG ISA", "ii", "HL")
     
     // MARK: - Computed Properties (non-stored)
     var currentPrice: Double {
@@ -193,10 +194,12 @@ final class Position {
         shares: Double,
         averageCost: Double,
         purchaseDate: Date = Date(),
-        stock: Stock? = nil
+        stock: Stock? = nil,
+        accountRef: String? = nil
     ) {
         self.id = UUID()
         self.symbol = symbol
+        self.accountRef = accountRef
         self.shares = shares
         self.averageCost = averageCost
         self.purchaseDate = purchaseDate
