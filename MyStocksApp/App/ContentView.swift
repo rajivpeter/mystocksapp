@@ -10,6 +10,8 @@ import SwiftUI
 struct ContentView: View {
     @Environment(AppState.self) private var appState
     @State private var selectedTab: AppTab = .portfolio
+    @State private var showImportSheet = false
+    @State private var importCSVData: String = ""
     
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -59,6 +61,26 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToAlert)) { _ in
             selectedTab = .alerts
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .importCSVFile)) { notification in
+            // Handle file import from share sheet
+            if let contents = notification.userInfo?["contents"] as? String {
+                importCSVData = contents
+                selectedTab = .portfolio
+                showImportSheet = true
+            }
+        }
+        .onChange(of: appState.showImportSheet) { _, newValue in
+            if newValue {
+                importCSVData = appState.pendingImportData ?? ""
+                selectedTab = .portfolio
+                showImportSheet = true
+                appState.showImportSheet = false
+                appState.pendingImportData = nil
+            }
+        }
+        .sheet(isPresented: $showImportSheet) {
+            PortfolioImportView(prefilledCSV: importCSVData)
         }
     }
 }

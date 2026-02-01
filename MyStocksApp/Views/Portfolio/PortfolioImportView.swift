@@ -16,6 +16,9 @@ struct PortfolioImportView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     
+    // Optional prefilled CSV data (from file share)
+    var prefilledCSV: String = ""
+    
     @State private var importMethod: ImportMethod = .file
     @State private var importMode: ImportMode = .merge
     @State private var showFilePicker = false
@@ -39,6 +42,9 @@ struct PortfolioImportView: View {
     
     // Exchange rate for currency conversion (USD to GBP)
     @State private var usdToGbpRate: Double = 0.79 // Default fallback
+    
+    // Track if we've processed prefilled data
+    @State private var hasProcessedPrefill = false
     
     enum ImportMethod: String, CaseIterable {
         case file = "File Import"
@@ -177,6 +183,13 @@ struct PortfolioImportView: View {
             }
             .onAppear {
                 fetchExchangeRate()
+                
+                // Process prefilled CSV if provided
+                if !prefilledCSV.isEmpty && !hasProcessedPrefill {
+                    hasProcessedPrefill = true
+                    csvText = prefilledCSV
+                    parseCSVText(prefilledCSV)
+                }
             }
         }
     }

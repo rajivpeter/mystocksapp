@@ -50,8 +50,48 @@ struct MyStocksAppApp: App {
                 .onAppear {
                     setupApp()
                 }
+                .onOpenURL { url in
+                    handleOpenURL(url)
+                }
         }
         .modelContainer(sharedModelContainer)
+    }
+    
+    // MARK: - Handle File Open
+    private func handleOpenURL(_ url: URL) {
+        print("📁 Received file: \(url.lastPathComponent)")
+        
+        // Check if it's a CSV or text file
+        let fileExtension = url.pathExtension.lowercased()
+        guard ["csv", "txt"].contains(fileExtension) else {
+            print("⚠️ Unsupported file type: \(fileExtension)")
+            return
+        }
+        
+        // Read the file and post notification for import
+        do {
+            let hasAccess = url.startAccessingSecurityScopedResource()
+            defer {
+                if hasAccess { url.stopAccessingSecurityScopedResource() }
+            }
+            
+            let contents = try String(contentsOf: url, encoding: .utf8)
+            
+            // Post notification with file contents for import view
+            NotificationCenter.default.post(
+                name: .importCSVFile,
+                object: nil,
+                userInfo: ["contents": contents, "filename": url.lastPathComponent]
+            )
+            
+            // Navigate to portfolio import
+            appState.pendingImportData = contents
+            appState.showImportSheet = true
+            
+            print("✅ File contents ready for import (\(contents.count) characters)")
+        } catch {
+            print("❌ Failed to read file: \(error)")
+        }
     }
     
     // MARK: - Setup
@@ -96,6 +136,10 @@ class AppState {
     // Currency settings
     var displayCurrency: Currency = .gbp  // Main display currency for totals
     var showNativeCurrency = true         // Show stocks in their native currency on detail pages
+    
+    // Import from file
+    var pendingImportData: String?
+    var showImportSheet = false
     
     func handleDeepLink(_ url: URL) {
         // Handle deep links from notifications or widgets
@@ -153,4 +197,5 @@ extension Notification.Name {
     static let navigateToAlert = Notification.Name("navigateToAlert")
     static let priceAlert = Notification.Name("priceAlert")
     static let patternDetected = Notification.Name("patternDetected")
+    static let importCSVFile = Notification.Name("importCSVFile")
 }
