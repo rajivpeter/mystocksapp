@@ -51,6 +51,64 @@ struct PatternAnnotation: Identifiable {
     let isBullish: Bool
     let confidence: Int
     let description: String
+    
+    // Unique color for each pattern type
+    var patternColor: Color {
+        switch patternName.lowercased() {
+        case "hammer":
+            return .green
+        case "shooting star":
+            return .red
+        case "doji":
+            return .purple
+        case "dragonfly doji":
+            return .teal
+        case "gravestone doji":
+            return .orange
+        case "bullish engulfing":
+            return .mint
+        case "bearish engulfing":
+            return .pink
+        case "piercing line":
+            return .cyan
+        case "dark cloud cover":
+            return .indigo
+        case "morning star":
+            return Color(red: 0.2, green: 0.8, blue: 0.4) // Bright green
+        case "evening star":
+            return Color(red: 0.8, green: 0.2, blue: 0.3) // Dark red
+        case "three white soldiers":
+            return Color(red: 0.1, green: 0.7, blue: 0.5) // Teal green
+        case "three black crows":
+            return Color(red: 0.6, green: 0.1, blue: 0.2) // Maroon
+        case "spinning top":
+            return .yellow
+        default:
+            return isBullish ? .green : .red
+        }
+    }
+    
+    // Icon for each pattern
+    var patternIcon: String {
+        switch patternName.lowercased() {
+        case "hammer":
+            return "hammer.fill"
+        case "shooting star":
+            return "star.fill"
+        case "doji", "dragonfly doji", "gravestone doji":
+            return "plus"
+        case "bullish engulfing", "bearish engulfing":
+            return "square.on.square"
+        case "morning star", "evening star":
+            return "star.circle.fill"
+        case "three white soldiers":
+            return "person.3.fill"
+        case "three black crows":
+            return "bird.fill"
+        default:
+            return "chart.bar.fill"
+        }
+    }
 }
 
 // MARK: - Candlestick Chart View
@@ -63,6 +121,41 @@ struct CandlestickChart: View {
     
     @State private var selectedCandle: CandlestickData?
     @State private var showTooltip = false
+    
+    // Zoom and pan state
+    @State private var zoomScale: CGFloat = 1.0
+    @State private var lastZoomScale: CGFloat = 1.0
+    @State private var offset: CGFloat = 0
+    @State private var lastOffset: CGFloat = 0
+    @GestureState private var magnifyBy: CGFloat = 1.0
+    
+    // Computed visible data based on zoom
+    private var visibleData: [CandlestickData] {
+        guard !data.isEmpty else { return [] }
+        
+        let totalCount = data.count
+        let visibleCount = max(5, Int(Double(totalCount) / Double(zoomScale)))
+        
+        // Calculate start index based on offset
+        let maxOffset = max(0, totalCount - visibleCount)
+        let normalizedOffset = min(maxOffset, max(0, Int(offset)))
+        
+        let startIndex = normalizedOffset
+        let endIndex = min(totalCount, startIndex + visibleCount)
+        
+        return Array(data[startIndex..<endIndex])
+    }
+    
+    // Visible patterns based on zoom
+    private var visiblePatterns: [PatternAnnotation] {
+        guard !visibleData.isEmpty else { return patterns }
+        guard let firstDate = visibleData.first?.date,
+              let lastDate = visibleData.last?.date else { return patterns }
+        
+        return patterns.filter { pattern in
+            pattern.date >= firstDate && pattern.date <= lastDate
+        }
+    }
     
     init(
         data: [CandlestickData],
@@ -80,9 +173,14 @@ struct CandlestickChart: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Price Chart
+            // Zoom controls
+            zoomControls
+            
+            // Price Chart with gestures
             priceChart
                 .frame(height: showVolume ? 250 : 300)
+                .gesture(zoomGesture)
+                .gesture(panGesture)
             
             // Volume Chart
             if showVolume {
@@ -90,17 +188,115 @@ struct CandlestickChart: View {
                     .frame(height: 60)
             }
             
-            // Pattern Legend
-            if showPatterns && !patterns.isEmpty {
+            // Pattern Legend with colors
+            if showPatterns && !visiblePatterns.isEmpty {
                 patternLegend
             }
         }
     }
     
+    // MARK: - Zoom Controls
+    private var zoomControls: some View {
+        HStack {
+            // Zoom out
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    zoomScale = max(1.0, zoomScale - 0.5)
+                }
+            } label: {
+                Image(systemName: "minus.magnifyingglass")
+                    .font(.caption)
+                    .padding(6)
+                    .background(Color.gray.opacity(0.2))
+                    .cornerRadius(6)
+            }
+            
+            Text("\(Int(zoomScale * 100))%")
+                .font(.caption.monospacedDigit())
+                .frame(width: 50)
+            
+            // Zoom in
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    zoomScale = min(5.0, zoomScale + 0.5)
+                }
+            } label: {
+                Image(systemName: "plus.magnifyingglass")
+                    .font(.caption)
+                    .padding(6)
+                    .background(Color.gray.opacity(0.2))
+                    .cornerRadius(6)
+            }
+            
+            Spacer()
+            
+            // Reset
+            if zoomScale != 1.0 || offset != 0 {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        zoomScale = 1.0
+                        offset = 0
+                    }
+                } label: {
+                    Text("Reset")
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.brandPrimary.opacity(0.2))
+                        .cornerRadius(6)
+                }
+            }
+            
+            // Pinch hint
+            HStack(spacing: 4) {
+                Image(systemName: "hand.pinch")
+                    .font(.caption2)
+                Text("Pinch to zoom")
+                    .font(.caption2)
+            }
+            .foregroundColor(.secondary)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 4)
+    }
+    
+    // MARK: - Gestures
+    private var zoomGesture: some Gesture {
+        MagnificationGesture()
+            .updating($magnifyBy) { currentState, gestureState, _ in
+                gestureState = currentState
+            }
+            .onEnded { value in
+                let newScale = lastZoomScale * value
+                withAnimation(.easeInOut(duration: 0.1)) {
+                    zoomScale = min(5.0, max(1.0, newScale))
+                }
+                lastZoomScale = zoomScale
+            }
+    }
+    
+    private var panGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                // Only pan when zoomed in
+                if zoomScale > 1.0 {
+                    let delta = value.translation.width / 10 // Sensitivity
+                    offset = lastOffset - delta
+                    
+                    // Clamp to valid range
+                    let maxOffset = CGFloat(max(0, data.count - Int(Double(data.count) / Double(zoomScale))))
+                    offset = max(0, min(maxOffset, offset))
+                }
+            }
+            .onEnded { _ in
+                lastOffset = offset
+            }
+    }
+    
     // MARK: - Price Chart
     private var priceChart: some View {
         Chart {
-            ForEach(data) { candle in
+            ForEach(visibleData) { candle in
                 // High-Low wick
                 RectangleMark(
                     x: .value("Date", candle.date),
@@ -110,25 +306,26 @@ struct CandlestickChart: View {
                 )
                 .foregroundStyle(candle.isBullish ? Color.green.opacity(0.8) : Color.red.opacity(0.8))
                 
-                // Body
+                // Body - width increases with zoom
+                let bodyWidth: MarkDimension = zoomScale > 2 ? 12 : (zoomScale > 1.5 ? 10 : 8)
                 RectangleMark(
                     x: .value("Date", candle.date),
                     yStart: .value("Open", candle.bodyBottom),
                     yEnd: .value("Close", candle.bodyTop),
-                    width: 8
+                    width: bodyWidth
                 )
                 .foregroundStyle(candle.isBullish ? Color.green : Color.red)
             }
             
-            // Pattern markers
+            // Pattern markers with unique colors
             if showPatterns {
-                ForEach(patterns) { pattern in
+                ForEach(visiblePatterns) { pattern in
                     PointMark(
                         x: .value("Date", pattern.date),
                         y: .value("Price", pattern.price)
                     )
-                    .symbolSize(200)
-                    .foregroundStyle(pattern.isBullish ? Color.green : Color.red)
+                    .symbolSize(zoomScale > 1.5 ? 300 : 200)
+                    .foregroundStyle(pattern.patternColor) // Use unique color!
                     .annotation(position: pattern.isBullish ? .bottom : .top) {
                         patternMarker(pattern)
                     }
@@ -136,7 +333,7 @@ struct CandlestickChart: View {
             }
         }
         .chartXAxis {
-            AxisMarks(values: .stride(by: .day, count: max(1, data.count / 5))) { value in
+            AxisMarks(values: .stride(by: .day, count: max(1, visibleData.count / 5))) { value in
                 if let date = value.as(Date.self) {
                     AxisValueLabel {
                         Text(date, format: .dateTime.month(.abbreviated).day())
@@ -157,19 +354,31 @@ struct CandlestickChart: View {
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [4]))
             }
         }
-        .chartYScale(domain: priceRange)
+        .chartYScale(domain: visiblePriceRange)
         .chartOverlay { proxy in
             GeometryReader { geometry in
                 Rectangle()
                     .fill(Color.clear)
                     .contentShape(Rectangle())
                     .gesture(
-                        DragGesture(minimumDistance: 0)
+                        TapGesture()
+                            .onEnded { _ in
+                                // Handle tap for selecting candle
+                            }
+                    )
+                    .gesture(
+                        LongPressGesture(minimumDuration: 0.2)
+                            .sequenced(before: DragGesture(minimumDistance: 0))
                             .onChanged { value in
-                                let location = value.location
-                                if let date: Date = proxy.value(atX: location.x) {
-                                    selectedCandle = data.min(by: { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) })
-                                    showTooltip = true
+                                switch value {
+                                case .second(true, let drag):
+                                    if let location = drag?.location,
+                                       let date: Date = proxy.value(atX: location.x) {
+                                        selectedCandle = visibleData.min(by: { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) })
+                                        showTooltip = true
+                                    }
+                                default:
+                                    break
                                 }
                             }
                             .onEnded { _ in
@@ -187,10 +396,20 @@ struct CandlestickChart: View {
         }
     }
     
+    // Visible price range (recalculated for zoom)
+    private var visiblePriceRange: ClosedRange<Double> {
+        guard !visibleData.isEmpty else { return 0...100 }
+        let lows = visibleData.map { $0.low }
+        let highs = visibleData.map { $0.high }
+        let minPrice = (lows.min() ?? 0) * 0.995
+        let maxPrice = (highs.max() ?? 100) * 1.005
+        return minPrice...maxPrice
+    }
+    
     // MARK: - Volume Chart
     private var volumeChart: some View {
         Chart {
-            ForEach(data) { candle in
+            ForEach(visibleData) { candle in
                 BarMark(
                     x: .value("Date", candle.date),
                     y: .value("Volume", candle.volume)
@@ -214,16 +433,16 @@ struct CandlestickChart: View {
     // MARK: - Pattern Marker
     private func patternMarker(_ pattern: PatternAnnotation) -> some View {
         VStack(spacing: 2) {
-            Image(systemName: pattern.isBullish ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill")
+            Image(systemName: pattern.patternIcon)
                 .font(.caption2)
-                .foregroundColor(pattern.isBullish ? .green : .red)
+                .foregroundColor(pattern.patternColor)
             
             Text(pattern.patternName)
-                .font(.system(size: 8, weight: .medium))
+                .font(.system(size: zoomScale > 1.5 ? 10 : 8, weight: .medium))
                 .foregroundColor(.white)
                 .padding(.horizontal, 4)
                 .padding(.vertical, 2)
-                .background(pattern.isBullish ? Color.green : Color.red)
+                .background(pattern.patternColor)
                 .cornerRadius(4)
         }
         .onTapGesture {
@@ -235,22 +454,34 @@ struct CandlestickChart: View {
     private var patternLegend: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
-                ForEach(patterns) { pattern in
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(pattern.isBullish ? Color.green : Color.red)
-                            .frame(width: 8, height: 8)
+                ForEach(visiblePatterns) { pattern in
+                    HStack(spacing: 6) {
+                        // Pattern-specific icon and color
+                        Image(systemName: pattern.patternIcon)
+                            .font(.caption)
+                            .foregroundColor(pattern.patternColor)
+                        
                         Text(pattern.patternName)
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.primary)
+                        
+                        // Confidence badge
                         Text("\(pattern.confidence)%")
-                            .font(.caption2)
-                            .foregroundColor(.gray)
+                            .font(.caption2.bold())
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(pattern.patternColor)
+                            .cornerRadius(6)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.gray.opacity(0.2))
-                    .cornerRadius(8)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(pattern.patternColor.opacity(0.15))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(pattern.patternColor, lineWidth: 1)
+                    )
+                    .cornerRadius(10)
                     .onTapGesture {
                         onPatternTap?(pattern)
                     }

@@ -96,7 +96,11 @@ struct StockDetailView: View {
         }
         .sheet(isPresented: $showPatternEducation) {
             if let pattern = selectedPattern {
-                PatternEducationSheet(pattern: pattern)
+                PatternEducationSheet(
+                    pattern: pattern,
+                    symbol: symbol,
+                    currentPrice: stock?.currentPrice ?? 0
+                )
             }
         }
     }
@@ -1218,87 +1222,50 @@ struct ActionButton: View {
 // MARK: - Pattern Education Sheet
 struct PatternEducationSheet: View {
     let pattern: PatternAnnotation
+    var symbol: String = ""
+    var currentPrice: Double = 0
+    
     @Environment(\.dismiss) private var dismiss
+    @State private var aiAnalysis: PatternAnalysis?
+    @State private var isLoadingAI = false
+    @State private var showAISection = true
+    
+    // Get pattern definition from library
+    private var definition: PatternDefinition? {
+        PatternLibrary.allPatterns.first { $0.name == pattern.patternName }
+    }
     
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    // Header
-                    HStack {
-                        Image(systemName: pattern.isBullish ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
-                            .font(.largeTitle)
-                            .foregroundColor(pattern.isBullish ? .green : .red)
-                        
-                        VStack(alignment: .leading) {
-                            Text(pattern.patternName)
-                                .font(.title.bold())
-                            Text(pattern.isBullish ? "Bullish Pattern" : "Bearish Pattern")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(12)
+                    // Header with pattern-specific color
+                    patternHeader
                     
-                    // Description
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("What is it?")
-                            .font(.headline)
-                        Text(pattern.description)
-                            .foregroundColor(.secondary)
+                    // Quick Stats
+                    quickStatsSection
+                    
+                    // AI-Powered Analysis (Context-Specific)
+                    aiAnalysisSection
+                    
+                    // What is this pattern?
+                    descriptionSection
+                    
+                    // Key Characteristics
+                    if let definition = definition, !definition.keyCharacteristics.isEmpty {
+                        characteristicsSection(definition)
                     }
                     
-                    // Find pattern definition
-                    if let definition = PatternLibrary.allPatterns.first(where: { $0.name == pattern.patternName }) {
-                        // Key Characteristics
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Key Characteristics")
-                                .font(.headline)
-                            ForEach(definition.keyCharacteristics, id: \.self) { characteristic in
-                                HStack(alignment: .top, spacing: 8) {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.green)
-                                    Text(characteristic)
-                                }
-                            }
-                        }
-                        
-                        // Trading Strategy
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("How to Trade")
-                                .font(.headline)
-                            
-                            StrategyCard(title: "Entry", content: definition.entryStrategy, icon: "arrow.right.circle.fill", color: .blue)
-                            StrategyCard(title: "Target", content: definition.targetCalculation, icon: "target", color: .green)
-                            StrategyCard(title: "Stop Loss", content: definition.stopLoss, icon: "xmark.octagon.fill", color: .red)
-                        }
-                        
-                        // Reliability
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Reliability")
-                                .font(.headline)
-                            HStack {
-                                Text(definition.reliability.rawValue)
-                                    .font(.subheadline.bold())
-                                Text("(\(definition.reliability.successRate) success rate)")
-                                    .foregroundColor(.secondary)
-                            }
-                        }
+                    // Trading Strategy
+                    if let definition = definition {
+                        tradingStrategySection(definition)
                     }
                     
-                    // Confidence for this detection
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Detection Confidence")
-                            .font(.headline)
-                        HStack {
-                            ProgressView(value: Double(pattern.confidence) / 100)
-                                .tint(pattern.confidence > 70 ? .green : .orange)
-                            Text("\(pattern.confidence)%")
-                                .font(.headline)
-                        }
-                    }
+                    // Reliability & Confidence
+                    confidenceSection
+                    
+                    // Disclaimer
+                    disclaimerSection
                 }
                 .padding()
             }
@@ -1309,7 +1276,323 @@ struct PatternEducationSheet: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .onAppear {
+                loadAIAnalysis()
+            }
         }
+    }
+    
+    // MARK: - Header
+    private var patternHeader: some View {
+        HStack(spacing: 16) {
+            // Pattern icon with unique color
+            ZStack {
+                Circle()
+                    .fill(pattern.patternColor.opacity(0.2))
+                    .frame(width: 60, height: 60)
+                Image(systemName: pattern.patternIcon)
+                    .font(.title)
+                    .foregroundColor(pattern.patternColor)
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(pattern.patternName)
+                    .font(.title2.bold())
+                
+                HStack {
+                    Text(pattern.isBullish ? "Bullish" : "Bearish")
+                        .font(.subheadline.bold())
+                        .foregroundColor(pattern.isBullish ? .green : .red)
+                    
+                    Text("•")
+                        .foregroundColor(.secondary)
+                    
+                    Text("\(pattern.confidence)% confidence")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            Spacer()
+        }
+        .padding()
+        .background(pattern.patternColor.opacity(0.1))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(pattern.patternColor.opacity(0.3), lineWidth: 1)
+        )
+        .cornerRadius(12)
+    }
+    
+    // MARK: - Quick Stats
+    private var quickStatsSection: some View {
+        HStack(spacing: 12) {
+            StatBadge(
+                title: "Signal",
+                value: pattern.isBullish ? "BUY" : "SELL",
+                color: pattern.isBullish ? .green : .red
+            )
+            
+            if let def = definition {
+                StatBadge(
+                    title: "Success Rate",
+                    value: def.reliability.successRate,
+                    color: .blue
+                )
+            }
+            
+            StatBadge(
+                title: "Type",
+                value: definition?.type.rawValue ?? "Pattern",
+                color: .purple
+            )
+        }
+    }
+    
+    // MARK: - AI Analysis Section
+    private var aiAnalysisSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "brain.head.profile")
+                    .foregroundColor(.brandPrimary)
+                Text("AI Analysis")
+                    .font(.headline)
+                
+                Spacer()
+                
+                if isLoadingAI {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                } else if aiAnalysis?.isAIGenerated == true {
+                    Label("AI Generated", systemImage: "sparkles")
+                        .font(.caption)
+                        .foregroundColor(.brandPrimary)
+                }
+            }
+            
+            if let analysis = aiAnalysis {
+                Text(analysis.explanation)
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+                    .padding()
+                    .background(Color.brandPrimary.opacity(0.1))
+                    .cornerRadius(10)
+                
+                // Risk level indicator
+                HStack {
+                    Text("Risk Level:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    Text(analysis.riskLevel.rawValue)
+                        .font(.caption.bold())
+                        .foregroundColor(riskColor(analysis.riskLevel))
+                    
+                    Spacer()
+                    
+                    Text("AI Confidence: \(analysis.confidence)%")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            } else if isLoadingAI {
+                HStack {
+                    Spacer()
+                    VStack {
+                        ProgressView()
+                        Text("Analyzing pattern...")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding()
+            } else {
+                // Fallback static description
+                Text(pattern.description.isEmpty ? (definition?.description ?? "Pattern detected on the chart.") : pattern.description)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .padding()
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(10)
+            }
+        }
+        .padding()
+        .background(Color.gray.opacity(0.05))
+        .cornerRadius(12)
+    }
+    
+    // MARK: - Description Section
+    private var descriptionSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "book.fill")
+                    .foregroundColor(.orange)
+                Text("What is a \(pattern.patternName)?")
+                    .font(.headline)
+            }
+            
+            Text(definition?.description ?? pattern.description)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+    }
+    
+    // MARK: - Characteristics
+    private func characteristicsSection(_ definition: PatternDefinition) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "checklist")
+                    .foregroundColor(.blue)
+                Text("Key Characteristics")
+                    .font(.headline)
+            }
+            
+            ForEach(definition.keyCharacteristics, id: \.self) { characteristic in
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .font(.subheadline)
+                    Text(characteristic)
+                        .font(.subheadline)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Trading Strategy
+    private func tradingStrategySection(_ definition: PatternDefinition) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "chart.line.uptrend.xyaxis")
+                    .foregroundColor(.green)
+                Text("How to Trade")
+                    .font(.headline)
+            }
+            
+            if !definition.entryStrategy.isEmpty {
+                StrategyCard(title: "Entry Strategy", content: definition.entryStrategy, icon: "arrow.right.circle.fill", color: .blue)
+            }
+            
+            if !definition.targetCalculation.isEmpty {
+                StrategyCard(title: "Target Calculation", content: definition.targetCalculation, icon: "target", color: .green)
+            }
+            
+            if !definition.stopLoss.isEmpty {
+                StrategyCard(title: "Stop Loss", content: definition.stopLoss, icon: "xmark.octagon.fill", color: .red)
+            }
+        }
+    }
+    
+    // MARK: - Confidence Section
+    private var confidenceSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "gauge.medium")
+                    .foregroundColor(.purple)
+                Text("Detection Confidence")
+                    .font(.headline)
+            }
+            
+            VStack(spacing: 8) {
+                HStack {
+                    ProgressView(value: Double(pattern.confidence) / 100)
+                        .tint(pattern.confidence > 70 ? .green : (pattern.confidence > 50 ? .orange : .red))
+                    Text("\(pattern.confidence)%")
+                        .font(.headline.monospacedDigit())
+                }
+                
+                if let def = definition {
+                    HStack {
+                        Text("Historical Reliability:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(def.reliability.rawValue)
+                            .font(.caption.bold())
+                        Text("(\(def.reliability.successRate))")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Disclaimer
+    private var disclaimerSection: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.orange)
+            Text("This is educational content, not financial advice. Always do your own research.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding()
+        .background(Color.orange.opacity(0.1))
+        .cornerRadius(8)
+    }
+    
+    // MARK: - Load AI Analysis
+    private func loadAIAnalysis() {
+        guard !symbol.isEmpty else {
+            // Use static analysis if no symbol context
+            aiAnalysis = PatternAnalysis(
+                patternName: pattern.patternName,
+                explanation: definition?.description ?? pattern.description,
+                tradingImplication: definition?.entryStrategy ?? "",
+                riskLevel: pattern.confidence > 70 ? .low : .medium,
+                confidence: pattern.confidence,
+                isAIGenerated: false
+            )
+            return
+        }
+        
+        isLoadingAI = true
+        
+        Task {
+            let analysis = await AIAnalysisService.shared.analyzePattern(
+                patternName: pattern.patternName,
+                symbol: symbol,
+                currentPrice: currentPrice,
+                patternPrice: pattern.price,
+                confidence: pattern.confidence,
+                isBullish: pattern.isBullish
+            )
+            
+            await MainActor.run {
+                self.aiAnalysis = analysis
+                self.isLoadingAI = false
+            }
+        }
+    }
+    
+    private func riskColor(_ level: PatternAnalysis.RiskLevel) -> Color {
+        switch level {
+        case .low: return .green
+        case .medium: return .orange
+        case .high: return .red
+        }
+    }
+}
+
+// MARK: - Stat Badge
+struct StatBadge: View {
+    let title: String
+    let value: String
+    let color: Color
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(title)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            Text(value)
+                .font(.caption.bold())
+                .foregroundColor(color)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(color.opacity(0.1))
+        .cornerRadius(8)
     }
 }
 
