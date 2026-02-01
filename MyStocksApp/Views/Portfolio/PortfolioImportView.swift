@@ -26,7 +26,9 @@ struct PortfolioImportView: View {
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var parsedPositions: [ParsedPosition] = []
     @State private var isProcessing = false
+    @State private var isImporting = false
     @State private var errorMessage: String?
+    @State private var successMessage: String?
     @State private var showPreview = false
     @State private var csvText = ""
     @State private var showClearConfirmation = false
@@ -45,6 +47,10 @@ struct PortfolioImportView: View {
     
     // Track if we've processed prefilled data
     @State private var hasProcessedPrefill = false
+    
+    // Export functionality
+    @State private var showShareSheet = false
+    @State private var exportedCSVURL: URL?
     
     enum ImportMethod: String, CaseIterable {
         case file = "File Import"
@@ -180,6 +186,11 @@ struct PortfolioImportView: View {
             }
             .sheet(isPresented: $showMappingConfirmation) {
                 mappingConfirmationSheet
+            }
+            .sheet(isPresented: $showShareSheet) {
+                if let url = exportedCSVURL {
+                    ShareSheet(activityItems: [url])
+                }
             }
             .onAppear {
                 fetchExchangeRate()
@@ -369,6 +380,22 @@ struct PortfolioImportView: View {
                         .foregroundColor(.white)
                         .cornerRadius(12)
                     }
+                }
+                
+                // Export existing positions as CSV template
+                Button {
+                    exportPositionsAsCSV()
+                } label: {
+                    HStack {
+                        Image(systemName: "square.and.arrow.up")
+                        Text("Export Current Portfolio as CSV")
+                            .font(.subheadline)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.gray.opacity(0.2))
+                    .foregroundColor(.primary)
+                    .cornerRadius(12)
                 }
             }
             
@@ -583,6 +610,44 @@ struct PortfolioImportView: View {
                         .font(.subheadline.bold())
                 }
                 .padding(.top, 8)
+                
+                // Big Import Button
+                Button {
+                    importPositions()
+                } label: {
+                    HStack {
+                        if isImporting {
+                            ProgressView()
+                                .tint(.white)
+                        } else {
+                            Image(systemName: "square.and.arrow.down.fill")
+                        }
+                        Text(isImporting ? "Importing..." : "Import \(displayPositions.count) Positions")
+                            .fontWeight(.bold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(isImporting ? Color.gray : Color.green)
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+                }
+                .disabled(isImporting)
+                .padding(.top, 12)
+                
+                // Success message
+                if let success = successMessage {
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text(success)
+                            .font(.subheadline)
+                            .foregroundColor(.green)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(Color.green.opacity(0.1))
+                    .cornerRadius(8)
+                }
             }
         }
         .padding()
@@ -1050,12 +1115,57 @@ struct PortfolioImportView: View {
         return numbers
     }
     
+    // MARK: - Export Positions as CSV
+    private func exportPositionsAsCSV() {
+        do {
+            // Fetch all existing positions
+            let descriptor = FetchDescriptor<Position>()
+            let positions = try modelContext.fetch(descriptor)
+            
+            // Build CSV content
+            var csvContent = "Symbol,Shares,AvgCost,Currency,Ref\n"
+            
+            if positions.isEmpty {
+                // Empty template with example
+                csvContent += "# No positions in app yet. Here's the format:\n"
+                csvContent += "# AAPL,43,197.11,USD,IG GIA\n"
+                csvContent += "# BARC,4000,1.16,GBP,IG ISA\n"
+            } else {
+                for position in positions.sorted(by: { $0.symbol < $1.symbol }) {
+                    let currencyCode = position.stock?.currency.rawValue ?? "GBP"
+                    let ref = position.accountRef ?? ""
+                    csvContent += "\(position.symbol),\(position.shares),\(String(format: "%.2f", position.averageCost)),\(currencyCode.uppercased()),\(ref)\n"
+                }
+            }
+            
+            // Save to temp file
+            let fileName = "MyStocksApp_Portfolio_\(Date().formatted(.dateTime.year().month().day())).csv"
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+            try csvContent.write(to: tempURL, atomically: true, encoding: .utf8)
+            
+            // Show share sheet
+            exportedCSVURL = tempURL
+            showShareSheet = true
+            
+            print("✅ Exported \(positions.count) positions to CSV")
+        } catch {
+            errorMessage = "Failed to export: \(error.localizedDescription)"
+            print("❌ Export failed: \(error)")
+        }
+    }
+    
     // MARK: - Import Positions
     private func importPositions() {
         print("📥 Starting import of \(parsedPositions.count) positions...")
         
+        // Clear previous messages
+        errorMessage = nil
+        successMessage = nil
+        isImporting = true
+        
         guard !parsedPositions.isEmpty else {
             errorMessage = "No positions to import"
+            isImporting = false
             return
         }
         
@@ -1074,11 +1184,13 @@ struct PortfolioImportView: View {
         
         var importedCount = 0
         var updatedCount = 0
+        var skippedCount = 0
         
         for parsed in positionsToImport {
             // Skip invalid positions
             guard parsed.shares > 0 else {
                 print("⚠️ Skipping \(parsed.symbol): invalid shares (\(parsed.shares))")
+                skippedCount += 1
                 continue
             }
             
@@ -1092,6 +1204,10 @@ struct PortfolioImportView: View {
                     
                     existingPosition.shares = totalShares
                     existingPosition.averageCost = newAvgCost
+                    // Update account ref if not already set
+                    if existingPosition.accountRef == nil && parsed.accountRef != nil {
+                        existingPosition.accountRef = parsed.accountRef
+                    }
                     updatedCount += 1
                     print("✅ Updated: \(parsed.symbol) - now \(totalShares) shares")
                     continue
@@ -1125,10 +1241,19 @@ struct PortfolioImportView: View {
         do {
             try modelContext.save()
             print("💾 Saved \(importedCount) new, \(updatedCount) updated positions")
-            dismiss()
+            
+            // Show success message briefly, then dismiss
+            successMessage = "Successfully imported \(importedCount) new, \(updatedCount) updated positions"
+            isImporting = false
+            
+            // Dismiss after a short delay so user sees success
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                dismiss()
+            }
         } catch {
             print("❌ Failed to save: \(error)")
             errorMessage = "Failed to save positions: \(error.localizedDescription)"
+            isImporting = false
         }
     }
     
@@ -1287,6 +1412,7 @@ struct ManualPositionEntry: View {
     @State private var shares = ""
     @State private var avgCost = ""
     @State private var currency = "USD"
+    @State private var accountRef = ""
     
     var body: some View {
         VStack(spacing: 12) {
@@ -1313,6 +1439,10 @@ struct ManualPositionEntry: View {
                 .pickerStyle(.menu)
             }
             
+            // Account Reference field
+            TextField("Account (e.g., IG ISA, ii, HL)", text: $accountRef)
+                .textFieldStyle(.roundedBorder)
+            
             Button {
                 guard !symbol.isEmpty,
                       let sharesNum = Double(shares),
@@ -1322,7 +1452,8 @@ struct ManualPositionEntry: View {
                     symbol: symbol.uppercased(),
                     shares: sharesNum,
                     averageCost: costNum,
-                    currency: currency
+                    currency: currency,
+                    accountRef: accountRef.isEmpty ? nil : accountRef
                 )
                 onAdd(position)
                 
@@ -1330,6 +1461,7 @@ struct ManualPositionEntry: View {
                 symbol = ""
                 shares = ""
                 avgCost = ""
+                accountRef = ""
             } label: {
                 HStack {
                     Image(systemName: "plus.circle.fill")
@@ -1344,6 +1476,22 @@ struct ManualPositionEntry: View {
             .disabled(symbol.isEmpty || shares.isEmpty || avgCost.isEmpty)
         }
     }
+}
+
+// MARK: - Share Sheet for Exporting CSV
+struct ShareSheet: UIViewControllerRepresentable {
+    let activityItems: [Any]
+    let applicationActivities: [UIActivity]? = nil
+    
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(
+            activityItems: activityItems,
+            applicationActivities: applicationActivities
+        )
+        return controller
+    }
+    
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 // MARK: - Preview

@@ -31,3 +31,7 @@ targets:
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: YES
     entitlements:
       path: MyStocksApp/MyStocksApp.entitlements
+    capabilities:
+      iCloud:
+        - CloudKit
+        - iCloud.com.yantraworks.mystocksapp

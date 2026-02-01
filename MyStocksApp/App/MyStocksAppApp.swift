@@ -29,16 +29,29 @@ struct MyStocksAppApp: App {
             WatchlistItem.self,
             TradeHistory.self
         ])
+        
+        // Use iCloud CloudKit for automatic backup and sync across devices
         let modelConfiguration = ModelConfiguration(
             schema: schema,
             isStoredInMemoryOnly: false,
-            cloudKitDatabase: .none
+            cloudKitDatabase: .automatic  // Enable iCloud backup!
         )
         
         do {
             return try ModelContainer(for: schema, configurations: [modelConfiguration])
         } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+            // Fallback to local-only if iCloud not available
+            print("⚠️ CloudKit not available, falling back to local storage: \(error)")
+            let localConfig = ModelConfiguration(
+                schema: schema,
+                isStoredInMemoryOnly: false,
+                cloudKitDatabase: .none
+            )
+            do {
+                return try ModelContainer(for: schema, configurations: [localConfig])
+            } catch {
+                fatalError("Could not create ModelContainer: \(error)")
+            }
         }
     }()
     
